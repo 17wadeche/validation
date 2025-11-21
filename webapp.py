@@ -13,16 +13,22 @@ from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
 from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
+from src.validation_agent.storage import (
+    SavedInputs,
+    StoredFile,
+    load_saved_inputs,
+    save_inputs,
+)
 
 app = Flask(__name__)
 
 
-def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
+def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:
-        return None, None, None
+        return None, None, None, None
     filename = file_storage.filename
     if not filename:
-        return None, None, None
+        return None, None, None, None
 
     raw_bytes = file_storage.stream.read()
     suffix = Path(filename).suffix
@@ -30,16 +36,40 @@ def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional
         tmp.write(raw_bytes)
         tmp.flush()
         text = load_text_document(Path(tmp.name))
-    return text, raw_bytes, suffix
+    return text, raw_bytes, suffix, filename
 
 
-def _gather_examples(uploaded_files) -> List[Example]:
+def _read_saved_file(saved_file: StoredFile) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
+    try:
+        raw_bytes = saved_file.to_bytes()
+    except Exception:
+        return None, None, None, None
+
+    suffix = saved_file.suffix or Path(saved_file.name).suffix
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(raw_bytes)
+        tmp.flush()
+        text = load_text_document(Path(tmp.name))
+    return text, raw_bytes, suffix, saved_file.name
+
+
+def _gather_examples(uploaded_files, saved_examples: List[StoredFile]) -> Tuple[List[Example], List[StoredFile]]:
     examples: List[Example] = []
+    stored_examples: List[StoredFile] = []
+
     for file_storage in uploaded_files or []:
-        content, _, _ = _read_upload(file_storage)
-        if content:
-            examples.append(Example(title=file_storage.filename, context="", output=content))
-    return examples
+        content, raw_bytes, _, filename = _read_upload(file_storage)
+        if content and raw_bytes is not None and filename:
+            examples.append(Example(title=filename, context="", output=content))
+            stored_examples.append(StoredFile.from_bytes(filename, raw_bytes))
+
+    for saved in saved_examples:
+        content, raw_bytes, _, name = _read_saved_file(saved)
+        if content and raw_bytes is not None and name:
+            examples.append(Example(title=name, context="", output=content))
+            stored_examples.append(StoredFile.from_bytes(name, raw_bytes))
+
+    return examples, stored_examples
 
 
 def _gather_code_context(code_files, inline_code: str) -> str:
@@ -58,12 +88,25 @@ def _gather_code_context(code_files, inline_code: str) -> str:
     return "\n".join(snippets).strip()
 
 
-def _build_prompt_from_request(form, files) -> Tuple[str, Optional[bytes]]:
-    template_text, template_bytes, _ = _read_upload(files.get("template_file"))
-    template_text = template_text or form.get("template_text", "")
-    examples = _gather_examples(files.getlist("examples"))
+def _build_prompt_from_request(
+    form,
+    files,
+    saved_inputs: SavedInputs,
+    keep_saved_template: bool,
+    kept_saved_examples: List[StoredFile],
+) -> Tuple[str, Optional[bytes], Optional[StoredFile], List[StoredFile]]:
+    template_text, template_bytes, _, template_name = _read_upload(files.get("template_file"))
+    stored_template: Optional[StoredFile] = None
+
+    if not template_text and keep_saved_template and saved_inputs.template:
+        template_text, template_bytes, _, template_name = _read_saved_file(saved_inputs.template)
+
+    if template_text and template_bytes is not None and template_name:
+        stored_template = StoredFile.from_bytes(template_name, template_bytes)
+
+    examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
     code_context = _gather_code_context(files.getlist("code_files"), form.get("code_context", ""))
-    return build_prompt(template_text, examples, code_context), template_bytes
+    return build_prompt(template_text or "", examples, code_context), template_bytes, stored_template, stored_examples
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -73,6 +116,8 @@ def index():
     error: Optional[str] = None
     history: list[dict] = []
     template_bytes: Optional[bytes] = None
+    stored_inputs: SavedInputs = load_saved_inputs()
+    persisted_inputs: SavedInputs = stored_inputs
 
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -91,14 +136,20 @@ def index():
     )
 
     if request.method == "POST":
-        prompt, template_bytes = _build_prompt_from_request(request.form, request.files)
-        if not template_bytes:
-            template_b64 = request.form.get("template_b64", "")
-            if template_b64:
-                try:
-                    template_bytes = base64.b64decode(template_b64)
-                except Exception:
-                    template_bytes = None
+        keep_saved_template = request.form.get("remove_template") != "on"
+        kept_saved_examples: List[StoredFile] = []
+        for idx, saved_example in enumerate(stored_inputs.examples):
+            if request.form.get(f"keep_example_{idx}") == "on":
+                kept_saved_examples.append(saved_example)
+
+        prompt, template_bytes, stored_template, stored_examples = _build_prompt_from_request(
+            request.form, request.files, stored_inputs, keep_saved_template, kept_saved_examples
+        )
+        if not template_bytes and keep_saved_template and stored_inputs.template:
+            try:
+                template_bytes = stored_inputs.template.to_bytes()
+            except Exception:
+                template_bytes = None
         action = request.form.get("action", "build")
 
         client = None
@@ -182,6 +233,12 @@ def index():
             except MedtronicGPTError as exc:
                 error = str(exc)
 
+        if request.form.get("remember_inputs") == "on":
+            final_template = stored_template if stored_template else (stored_inputs.template if keep_saved_template else None)
+            final_examples = stored_examples
+            persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
+            save_inputs(persisted_inputs)
+
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
@@ -190,7 +247,12 @@ def index():
         defaults=defaults,
         history=history,
         stored=stored,
-        template_b64=base64.b64encode(template_bytes).decode("utf-8") if template_bytes else "",
+        saved_inputs=persisted_inputs,
+        template_b64=base64.b64encode(template_bytes).decode("utf-8")
+        if template_bytes
+        else (
+            persisted_inputs.template.b64 if persisted_inputs.template else ""
+        ),
     )
 
 
@@ -221,12 +283,30 @@ TEMPLATE = """
     <input type=\"hidden\" name=\"action\" value=\"build\">
     <div class=\"section\">
       <label>Template (upload the source file)</label><br>
-      <input type=\"file\" name=\"template_file\" required>
+      <input type=\"file\" name=\"template_file\">
+      {% if saved_inputs.template %}
+        <div style=\"margin-top: 0.5rem;\">
+          <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\"> <label for=\"remove_template\">Remove saved template ({{ saved_inputs.template.name }})</label>
+          <div style=\"font-size: 0.9rem; color: #555;\">If you don't upload a new template, the saved file will be reused unless removed.</div>
+        </div>
+      {% endif %}
     </div>
 
     <div class=\"section\">
       <label>Examples (upload multiple files)</label><br>
       <input type=\"file\" name=\"examples\" multiple>
+      {% if saved_inputs.examples %}
+        <div style=\"margin-top: 0.5rem;\">
+          <div style=\"font-weight: bold;\">Saved examples:</div>
+          {% for example in saved_inputs.examples %}
+            <div>
+              <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
+              <label for=\"keep_example_{{ loop.index0 }}\">Reuse {{ example.name }}</label>
+            </div>
+          {% endfor %}
+          <div style=\"font-size: 0.9rem; color: #555;\">Uncheck to drop saved examples. Upload new files to replace or add to the list.</div>
+        </div>
+      {% endif %}
     </div>
 
     <div class=\"section\">
@@ -246,7 +326,8 @@ TEMPLATE = """
         <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\" style=\"width:100%\"></div>
         <div><label>API token</label><br><input type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\" style=\"width:100%\"></div>
         <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\" style=\"width:100%\"></div>
-        <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
+      <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
+      <div><input type=\"checkbox\" name=\"remember_inputs\" id=\"remember_inputs\" checked> <label for=\"remember_inputs\">Remember template and examples on this machine</label></div>
       </div>
     </div>
 

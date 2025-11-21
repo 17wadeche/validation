@@ -17,6 +17,32 @@ def _iter_paragraphs(document) -> Iterable:
                 yield from _iter_paragraphs(cell)
 
 
+def _is_blue_run(run) -> bool:
+    color = getattr(run.font, "color", None)
+    if not color:
+        return False
+
+    rgb = getattr(color, "rgb", None)
+    if rgb:
+        rgb_text = str(rgb).lower()
+        if rgb_text in {"0000ff", "1f4e79", "2f5496"}:
+            return True
+
+    theme_color = getattr(color, "theme_color", None)
+    if theme_color:
+        return "accent" in str(theme_color).lower()
+    return False
+
+
+def _replace_paragraph_with_lines(paragraph, lines: list[str]):
+    style = paragraph.style
+    parent = paragraph._parent
+    paragraph.text = lines[0]
+    paragraph.style = style
+    for line in lines[1:]:
+        parent.add_paragraph(line, style=style)
+
+
 def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> bytes:
     try:
         from docx import Document  # type: ignore
@@ -35,14 +61,14 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     lines = draft.splitlines() or [draft]
 
     for paragraph in _iter_paragraphs(doc):
+        if any(_is_blue_run(run) for run in getattr(paragraph, "runs", [])) and paragraph.text.strip():
+            _replace_paragraph_with_lines(paragraph, lines)
+            inserted = True
+            break
+
         for placeholder in placeholders:
             if placeholder in paragraph.text:
-                style = paragraph.style
-                paragraph.text = lines[0]
-                paragraph.style = style
-                parent = paragraph._parent
-                for line in lines[1:]:
-                    parent.add_paragraph(line, style=style)
+                _replace_paragraph_with_lines(paragraph, lines)
                 inserted = True
                 break
         if inserted:
