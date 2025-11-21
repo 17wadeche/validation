@@ -22,15 +22,27 @@ class MedtronicGPTClient:
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
 
-    def generate_completion(self, prompt: str, model: str = "gpt-41") -> str:
-        if not prompt.strip():
-            raise MedtronicGPTError("Prompt is empty; supply a template, examples, and code context.")
+    def generate_completion(
+        self,
+        prompt: str | None = None,
+        *,
+        model: str = "gpt-41",
+        messages: list[dict] | None = None,
+    ) -> str:
+        if messages is None:
+            if not prompt or not prompt.strip():
+                raise MedtronicGPTError("Prompt is empty; supply a template, examples, and code context.")
+            payload_messages = [{"role": "user", "content": prompt}]
+        else:
+            if not messages:
+                raise MedtronicGPTError("Message history is empty; provide at least one message.")
+            payload_messages = messages
 
         path = self.path_template.format(model=parse.quote(model, safe=""))
         if not path.startswith("/"):
             path = f"/{path}"
         url = f"{self.base_url.rstrip('/')}{path}"
-        payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
+        payload = json.dumps({"messages": payload_messages}).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
             "subscription-key": self.subscription_key,

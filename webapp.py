@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional
 
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, send_file
 
 from src.validation_agent.prompt_builder import Example, build_prompt
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
+from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
+from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
 
 app = Flask(__name__)
 
@@ -66,22 +69,98 @@ def index():
     prompt: Optional[str] = None
     draft: Optional[str] = None
     error: Optional[str] = None
+    history: list[dict] = []
+
+    defaults = {
+        "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
+        "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
+        "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
+        "model": "gpt-41",
+    }
+
+    stored = load_credentials()
+    defaults.update(
+        {
+            "base_url": stored.base_url or defaults["base_url"],
+            "api_version": stored.api_version or defaults["api_version"],
+            "path_template": stored.path_template or defaults["path_template"],
+        }
+    )
 
     if request.method == "POST":
         prompt = _build_prompt_from_request(request.form, request.files)
+        action = request.form.get("action", "build")
 
-        use_model = request.form.get("use_model") == "on"
-        if use_model:
-            model = request.form.get("model", "").strip() or "gpt-41"
+        client = None
+        model = request.form.get("model", "").strip() or defaults["model"]
+        if request.form.get("use_model") == "on":
             client = MedtronicGPTClient(
-                base_url=request.form.get("base_url", "").strip() or MedtronicGPTClient.DEFAULT_BASE_URL,
-                api_version=request.form.get("api_version", "").strip() or MedtronicGPTClient.DEFAULT_API_VERSION,
-                path_template=request.form.get("path_template", "").strip()
-                or MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
+                base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
+                api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
+                path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
                 subscription_key=request.form.get("subscription_key", "").strip(),
                 api_token=request.form.get("api_token", "").strip(),
                 refresh_token=request.form.get("refresh_token", "").strip(),
             )
+
+            if request.form.get("remember_credentials") == "on":
+                save_credentials(
+                    StoredCredentials(
+                        subscription_key=request.form.get("subscription_key", "").strip(),
+                        api_token=request.form.get("api_token", "").strip(),
+                        refresh_token=request.form.get("refresh_token", "").strip(),
+                        api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
+                        base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
+                        path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
+                    )
+                )
+
+        history_json = request.form.get("history_json", "[]")
+        try:
+            history = json.loads(history_json) if history_json else []
+        except json.JSONDecodeError:
+            history = []
+
+        if action == "chat" and client:
+            user_message = request.form.get("chat_input", "").strip()
+            if user_message:
+                history.append({"role": "user", "content": user_message})
+                seed = {
+                    "role": "system",
+                    "content": (
+                        "You are assisting with Medtronic validation drafting. "
+                        "Ask concise follow-up questions when required inputs are unclear and keep the chat grounded in the uploaded template, examples, and code context."
+                    ),
+                }
+                full_history = [seed]
+                if prompt:
+                    full_history.append({"role": "system", "content": f"Reference prompt context to stay on-topic:\n{prompt}"})
+                full_history += history
+                try:
+                    reply = client.generate_completion(model=model, messages=full_history)
+                    history.append({"role": "assistant", "content": reply})
+                except MedtronicGPTError as exc:
+                    error = str(exc)
+        elif action == "chat" and not client:
+            error = "Provide MedtronicGPT credentials to chat."
+        elif action == "download":
+            draft_text = request.form.get("draft_text", "")
+            filename = request.form.get("filename", "validation_draft.docx") or "validation_draft.docx"
+            try:
+                docx_bytes = draft_to_docx_bytes(draft_text)
+            except DocxExportError as exc:
+                error = str(exc)
+            else:
+                buffer = tempfile.SpooledTemporaryFile()
+                buffer.write(docx_bytes)
+                buffer.seek(0)
+                return send_file(
+                    buffer,
+                    mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    download_name=filename,
+                    as_attachment=True,
+                )
+        elif action == "build" and client:
             try:
                 draft = client.generate_completion(prompt, model=model)
             except MedtronicGPTError as exc:
@@ -92,12 +171,9 @@ def index():
         prompt=prompt,
         draft=draft,
         error=error,
-        defaults={
-            "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
-            "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
-            "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
-            "model": "gpt-41",
-        },
+        defaults=defaults,
+        history=history,
+        stored=stored,
     )
 
 
@@ -125,6 +201,7 @@ TEMPLATE = """
   {% endif %}
 
   <form method=\"post\" enctype=\"multipart/form-data\">
+    <input type=\"hidden\" name=\"action\" value=\"build\">
     <div class=\"section\">
       <label>Template</label><br>
       <input type=\"file\" name=\"template_file\"> or paste text:
@@ -151,9 +228,10 @@ TEMPLATE = """
         <div><label>Base URL</label><br><input type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\" style=\"width:100%\"></div>
         <div><label>API version</label><br><input type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\" style=\"width:100%\"></div>
         <div><label>Completions path template</label><br><input type=\"text\" name=\"path_template\" value=\"{{ defaults.path_template }}\" style=\"width:100%\"></div>
-        <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" style=\"width:100%\"></div>
-        <div><label>API token</label><br><input type=\"text\" name=\"api_token\" style=\"width:100%\"></div>
-        <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" style=\"width:100%\"></div>
+        <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\" style=\"width:100%\"></div>
+        <div><label>API token</label><br><input type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\" style=\"width:100%\"></div>
+        <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\" style=\"width:100%\"></div>
+        <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\"> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
       </div>
     </div>
 
@@ -171,8 +249,42 @@ TEMPLATE = """
     <div class=\"section\">
       <h2>Generated Draft</h2>
       <div class=\"output\">{{ draft }}</div>
+      <form method=\"post\" style=\"margin-top: 0.5rem;\">
+        <input type=\"hidden\" name=\"action\" value=\"download\">
+        <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
+        <label>Word file name</label><br>
+        <input type=\"text\" name=\"filename\" value=\"validation_draft.docx\" style=\"width: 50%;\"> <button type=\"submit\">Download as Word</button>
+      </form>
     </div>
   {% endif %}
+
+  <div class=\"section\">
+    <h2>Clarify or refine via chat</h2>
+    <p>Use this chat to ask MedtronicGPT for clarifications or follow-up questions when something in the template or code context is unclear.</p>
+    <form method=\"post\">
+      <input type=\"hidden\" name=\"action\" value=\"chat\">
+      <input type=\"hidden\" name=\"use_model\" value=\"on\">
+      <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">
+      <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
+      <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
+      <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
+      <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
+      <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
+      <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
+      <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
+
+      <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"height: 80px;\"></textarea><br>
+      <button type=\"submit\">Send</button>
+    </form>
+
+    {% if history %}
+      <div class=\"output\" style=\"margin-top: 0.75rem;\">
+        {% for message in history %}
+          <strong>{{ message.role|capitalize }}:</strong> {{ message.content }}<br>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
 </body>
 </html>
 """

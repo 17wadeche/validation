@@ -15,21 +15,22 @@ A lightweight toolkit for generating Medtronic-style validation drafts from temp
 python cli.py examples/validation_template.md \
   examples/examples.json \
   path/to/source/code \
-  --output draft.md
+  --output draft.md \
+  --docx-output draft.docx
 ```
 
 You can also substitute the template and example arguments with Word (`.docx`) files or PDFs to use your existing compliance artifacts. PDF extraction requires installing the optional dependency `pypdf`.
 
 The template should carry all guidance and placeholders (e.g., blue text) that need to be completed—no separate requirements upload is necessary.
 
-The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts.
+The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts. Add `--docx-output` to emit a Word document (requires `python-docx`).
 
 ## Web UI with MedtronicGPT
 
 1. Install UI dependencies:
 
 ```bash
-pip install flask
+pip install flask python-docx
 ```
 
 2. Start the UI server:
@@ -39,6 +40,10 @@ python webapp.py
 ```
 
 3. Open `http://localhost:8000` and upload your template, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt.medtronic.com`). The UI sends `subscription-key`, `api-token`, `refresh-token`, and `api-version` as headers and defaults to the path template `/models/{model}`—aligning with the working Postman example. Adjust the path if your gateway expects an alternate route.
+
+   - Toggle **Remember credentials on this machine** to persist the gateway tokens to `~/.validation_agent/credentials.json` for reuse.
+   - After a draft is generated, you can download it as a Word document directly from the UI.
+   - Use the **Clarify or refine via chat** panel to ask MedtronicGPT follow-up questions when a template field or code behavior is unclear. The chat reuses the saved credentials and keeps conversation history in the page.
 
 The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT. Validation instructions should come from the template (including any blue placeholder text).
 
