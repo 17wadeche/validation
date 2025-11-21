@@ -41,24 +41,21 @@ class ValidationAgent:
     def create_prompt(
         self,
         template_path: Path,
-        requirements_path: Path,
         examples_path: Path,
         code_paths: Iterable[Path],
     ) -> str:
         template = load_text_document(template_path)
-        requirements = load_text_document(requirements_path)
         examples = load_examples(examples_path)
         code_context = load_code_context(code_paths)
-        return build_prompt(template, requirements, examples, code_context)
+        return build_prompt(template, examples, code_context)
 
     def generate_draft(
         self,
         template_path: Path,
-        requirements_path: Path,
         examples_path: Path,
         code_paths: Iterable[Path],
     ) -> str:
-        prompt = self.create_prompt(template_path, requirements_path, examples_path, code_paths)
+        prompt = self.create_prompt(template_path, examples_path, code_paths)
         if self.llm_callable:
             return self.llm_callable(prompt)
         return prompt

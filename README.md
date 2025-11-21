@@ -1,12 +1,11 @@
 # validation
 
-A lightweight toolkit for generating Medtronic-style validation drafts from templates, guidance, examples, and source code.
+A lightweight toolkit for generating Medtronic-style validation drafts from templates, examples, and source code.
 
 ## Quick start
 
 1. Prepare inputs:
    - A validation template (Markdown or Word `.docx`; see `examples/validation_template.md`).
-   - Requirements and guidance (Markdown, Word `.docx`, or PDF).
    - Examples: either `examples/examples.json`, individual example documents (`.md`, `.docx`, `.pdf`, `.txt`), or a directory containing any mix of those.
    - Paths to the program code to be reflected in the documentation.
 
@@ -14,13 +13,14 @@ A lightweight toolkit for generating Medtronic-style validation drafts from temp
 
 ```bash
 python cli.py examples/validation_template.md \
-  examples/requirements.md \
   examples/examples.json \
   path/to/source/code \
   --output draft.md
 ```
 
 You can also substitute the template and example arguments with Word (`.docx`) files or PDFs to use your existing compliance artifacts. PDF extraction requires installing the optional dependency `pypdf`.
+
+The template should carry all guidance and placeholders (e.g., blue text) that need to be completed—no separate requirements upload is necessary.
 
 The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts.
 
@@ -38,9 +38,13 @@ pip install flask
 python webapp.py
 ```
 
-3. Open `http://localhost:8000` and upload your template, requirements, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`).
+3. Open `http://localhost:8000` and upload your template, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`).
 
-The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT.
+The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT. Validation instructions should come from the template (including any blue placeholder text).
+
+## Notes on compilation check
+
+Running `python -m compileall src cli.py webapp.py` will emit errors if bytecode generation fails; otherwise it completes quietly after listing the paths. You should see `__pycache__` directories appear beside the compiled files.
 
 ## Extending
 

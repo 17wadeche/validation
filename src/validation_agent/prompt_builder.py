@@ -67,15 +67,14 @@ def format_examples(examples: Iterable[Example]) -> str:
     return "\n".join(lines).strip()
 
 
-def build_prompt(template: str, requirements: str, examples: Iterable[Example], code_context: str) -> str:
+def build_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
     prompt_sections = [
         "You are an AI assistant that drafts Medtronic validation documentation.",
-        "Follow the provided template exactly, replacing placeholders with project-specific content.",
-        "Incorporate the requirements and reflect the provided program code context.",
+        "Follow the provided template exactly, replacing placeholders (highlighted in blue in the template) with project-specific content.",
+        "Use the program code context to ground statements and avoid inventing functionality.",
     ]
 
     prompt_sections.append("\n## Template\n" + template.strip())
-    prompt_sections.append("\n## Requirements and guidance\n" + requirements.strip())
 
     formatted_examples = format_examples(examples)
     if formatted_examples:
@@ -91,7 +90,7 @@ def build_prompt(template: str, requirements: str, examples: Iterable[Example], 
     prompt_sections.append(
         "\n## Expected output\n"
         "Produce a complete validation draft ready for compliance review."
-        " Maintain clear traceability to requirements, articulate test rationale,"
+        " Maintain clear traceability to the template placeholders, articulate test rationale,"
         " and avoid inventing functionality that is not evidenced in the code context."
     )
 

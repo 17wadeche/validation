@@ -22,7 +22,7 @@ class MedtronicGPTClient:
 
     def generate_completion(self, prompt: str, model: str = "gpt-41") -> str:
         if not prompt.strip():
-            raise MedtronicGPTError("Prompt is empty; supply template, requirements, examples, and code context.")
+            raise MedtronicGPTError("Prompt is empty; supply a template, examples, and code context.")
 
         url = (
             f"{self.base_url.rstrip('/')}/models/{parse.quote(model)}"

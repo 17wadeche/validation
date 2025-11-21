@@ -55,11 +55,10 @@ def _gather_code_context(code_files, inline_code: str) -> str:
 
 def _build_prompt_from_request(form, files) -> str:
     template_text = _read_upload(files.get("template_file")) or form.get("template_text", "")
-    requirements_text = _read_upload(files.get("requirements_file")) or form.get("requirements_text", "")
     examples = _gather_examples(files.getlist("examples"), form.get("examples_text", ""))
     code_context = _gather_code_context(files.getlist("code_files"), form.get("code_context", ""))
 
-    return build_prompt(template_text, requirements_text, examples, code_context)
+    return build_prompt(template_text, examples, code_context)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -116,7 +115,7 @@ TEMPLATE = """
 </head>
 <body>
   <h1>Validation Draft Builder</h1>
-  <p>Upload your template, requirements, examples, and code context to build a prompt or generate a draft via MedtronicGPT.</p>
+  <p>Upload your template, examples, and code context to build a prompt or generate a draft via MedtronicGPT. Any required guidance should live inside the template (for example, blue placeholder text).</p>
 
   {% if error %}
     <div style=\"color: red;\"><strong>Error:</strong> {{ error }}</div>
@@ -127,12 +126,6 @@ TEMPLATE = """
       <label>Template</label><br>
       <input type=\"file\" name=\"template_file\"> or paste text:
       <textarea name=\"template_text\"></textarea>
-    </div>
-
-    <div class=\"section\">
-      <label>Requirements and guidance</label><br>
-      <input type=\"file\" name=\"requirements_file\"> or paste text:
-      <textarea name=\"requirements_text\"></textarea>
     </div>
 
     <div class=\"section\">
