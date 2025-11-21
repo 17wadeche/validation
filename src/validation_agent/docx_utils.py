@@ -40,15 +40,26 @@ def _color_matches_blue(color) -> bool:
     if not color:
         return False
 
+    known_blues = {
+        "0000ff",
+        "1f4e79",
+        "2f5496",
+        "2b579a",
+        "4472c4",  # Word Accent 1
+        "5b9bd5",  # Word Accent 1 variant
+        "0070c0",  # Word Accent 1 dark
+        "0563c1",  # Alternate theme blue
+    }
+
     rgb = getattr(color, "rgb", None)
     if rgb:
         rgb_text = str(rgb).lower()
-        if rgb_text in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+        if rgb_text in known_blues:
             return True
 
     # ``val`` is used when the color comes from the theme or a direct hex code
     val = getattr(color, "val", None)
-    if val and str(val).lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+    if val and str(val).lower() in known_blues:
         return True
 
     try:  # pragma: no cover - depends on docx internals
@@ -57,7 +68,11 @@ def _color_matches_blue(color) -> bool:
         element = getattr(color, "_element", None)
         if element is not None:
             raw_val = element.get(qn("w:val"))
-            if raw_val and raw_val.lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+            if raw_val and raw_val.lower() in known_blues:
+                return True
+
+            theme_val = element.get(qn("w:themeColor"))
+            if theme_val and "accent" in theme_val.lower():
                 return True
     except Exception:
         pass
@@ -137,20 +152,18 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         if any(_is_blue_run(run) for run in runs) and paragraph.text.strip():
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
-            break
+            continue
 
         if any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
-            break
+            continue
 
         for placeholder in placeholders:
             if placeholder in paragraph.text:
                 _replace_paragraph_with_lines(paragraph, lines)
                 inserted = True
                 break
-        if inserted:
-            break
 
     if not inserted:
         for line in lines:
