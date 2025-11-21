@@ -16,16 +16,21 @@ class MedtronicGPTClient:
     refresh_token: str
     base_url: str = "https://api.gpt-dev.medtronic.com"
     api_version: str = "3.0"
+    path_template: str = "/openai/deployments/{model}/chat/completions"
 
     DEFAULT_BASE_URL = "https://api.gpt-dev.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
+    DEFAULT_PATH_TEMPLATE = "/openai/deployments/{model}/chat/completions"
 
     def generate_completion(self, prompt: str, model: str = "gpt-41") -> str:
         if not prompt.strip():
             raise MedtronicGPTError("Prompt is empty; supply a template, examples, and code context.")
 
+        path = self.path_template.format(model=parse.quote(model, safe=""))
+        if not path.startswith("/"):
+            path = f"/{path}"
         url = (
-            f"{self.base_url.rstrip('/')}/models/{parse.quote(model)}"
+            f"{self.base_url.rstrip('/')}{path}"
             f"?{parse.urlencode({'api-version': self.api_version})}"
         )
         payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
@@ -41,9 +46,11 @@ class MedtronicGPTClient:
             with request.urlopen(req) as resp:  # nosec: B310
                 body = resp.read().decode("utf-8")
         except error.HTTPError as exc:  # pragma: no cover - network
-            raise MedtronicGPTError(f"MedtronicGPT request failed ({exc.code}): {exc.reason}") from exc
+            raise MedtronicGPTError(
+                f"MedtronicGPT request failed ({exc.code}): {exc.reason} (URL: {url})"
+            ) from exc
         except error.URLError as exc:  # pragma: no cover - network
-            raise MedtronicGPTError(f"MedtronicGPT connection error: {exc.reason}") from exc
+            raise MedtronicGPTError(f"MedtronicGPT connection error: {exc.reason} (URL: {url})") from exc
 
         try:
             data = json.loads(body)

@@ -76,6 +76,8 @@ def index():
             client = MedtronicGPTClient(
                 base_url=request.form.get("base_url", "").strip() or MedtronicGPTClient.DEFAULT_BASE_URL,
                 api_version=request.form.get("api_version", "").strip() or MedtronicGPTClient.DEFAULT_API_VERSION,
+                path_template=request.form.get("path_template", "").strip()
+                or MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
                 subscription_key=request.form.get("subscription_key", "").strip(),
                 api_token=request.form.get("api_token", "").strip(),
                 refresh_token=request.form.get("refresh_token", "").strip(),
@@ -93,6 +95,7 @@ def index():
         defaults={
             "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
             "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
+            "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
             "model": "gpt-41",
         },
     )
@@ -147,6 +150,7 @@ TEMPLATE = """
         <div><label>Model</label><br><input type=\"text\" name=\"model\" value=\"{{ defaults.model }}\" style=\"width:100%\"></div>
         <div><label>Base URL</label><br><input type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\" style=\"width:100%\"></div>
         <div><label>API version</label><br><input type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\" style=\"width:100%\"></div>
+        <div><label>Completions path template</label><br><input type=\"text\" name=\"path_template\" value=\"{{ defaults.path_template }}\" style=\"width:100%\"></div>
         <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" style=\"width:100%\"></div>
         <div><label>API token</label><br><input type=\"text\" name=\"api_token\" style=\"width:100%\"></div>
         <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" style=\"width:100%\"></div>
