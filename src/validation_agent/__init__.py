@@ -1,5 +1,6 @@
 from .agent import ValidationAgent, load_code_context
-from .prompt_builder import Example, build_prompt, format_examples, load_examples, read_text
+from .document_loader import load_text_document
+from .prompt_builder import Example, build_prompt, format_examples, load_examples
 
 __all__ = [
     "Example",
@@ -8,5 +9,5 @@ __all__ = [
     "format_examples",
     "load_code_context",
     "load_examples",
-    "read_text",
+    "load_text_document",
 ]

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List
 
+from .document_loader import load_text_document
+
 
 @dataclass
 class Example:
@@ -12,25 +14,44 @@ class Example:
     title: str
     context: str
     output: str
-
-
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
-
-
 def load_examples(path: Path) -> List[Example]:
     import json
 
-    data = json.loads(path.read_text(encoding="utf-8"))
-    examples = []
-    for item in data:
-        examples.append(
-            Example(
-                title=item["title"],
-                context=item["context"].strip(),
-                output=item["output"].strip(),
+    if path.is_dir():
+        return _load_examples_from_directory(path)
+
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        examples = []
+        for item in data:
+            examples.append(
+                Example(
+                    title=item["title"],
+                    context=item.get("context", "").strip(),
+                    output=item["output"].strip(),
+                )
             )
-        )
+        return examples
+
+    if suffix in {".md", ".txt", ".markdown", ".docx", ".pdf"}:
+        content = load_text_document(path)
+        return [Example(title=path.stem, context="", output=content)]
+
+    raise ValueError(f"Unsupported examples source: {path}")
+
+
+def _load_examples_from_directory(path: Path) -> List[Example]:
+    examples: List[Example] = []
+    for doc in sorted(path.iterdir()):
+        if not doc.is_file():
+            continue
+        suffix = doc.suffix.lower()
+        if suffix in {".json"}:
+            examples.extend(load_examples(doc))
+        elif suffix in {".md", ".txt", ".markdown", ".docx", ".pdf"}:
+            content = load_text_document(doc)
+            examples.append(Example(title=doc.stem, context="", output=content))
     return examples
 
 

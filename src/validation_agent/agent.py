@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
-from .prompt_builder import Example, build_prompt, load_examples, read_text
+from .document_loader import load_text_document
+from .prompt_builder import Example, build_prompt, load_examples
 
 LLMCallable = Callable[[str], str]
 
@@ -44,8 +45,8 @@ class ValidationAgent:
         examples_path: Path,
         code_paths: Iterable[Path],
     ) -> str:
-        template = read_text(template_path)
-        requirements = read_text(requirements_path)
+        template = load_text_document(template_path)
+        requirements = load_text_document(requirements_path)
         examples = load_examples(examples_path)
         code_context = load_code_context(code_paths)
         return build_prompt(template, requirements, examples, code_context)

@@ -5,9 +5,9 @@ A lightweight toolkit for generating Medtronic-style validation drafts from temp
 ## Quick start
 
 1. Prepare inputs:
-   - A validation template (see `examples/validation_template.md`).
-   - Requirements and guidance (see `examples/requirements.md`).
-   - A JSON array of example validations (see `examples/examples.json`).
+   - A validation template (Markdown or Word `.docx`; see `examples/validation_template.md`).
+   - Requirements and guidance (Markdown, Word `.docx`, or PDF).
+   - Examples: either `examples/examples.json`, individual example documents (`.md`, `.docx`, `.pdf`, `.txt`), or a directory containing any mix of those.
    - Paths to the program code to be reflected in the documentation.
 
 2. Generate a draft prompt or validation:
@@ -19,6 +19,8 @@ python cli.py examples/validation_template.md \
   path/to/source/code \
   --output draft.md
 ```
+
+You can also substitute the template and example arguments with Word (`.docx`) files or PDFs to use your existing compliance artifacts. PDF extraction requires installing the optional dependency `pypdf`.
 
 The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts.
 
