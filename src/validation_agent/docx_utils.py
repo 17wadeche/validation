@@ -17,7 +17,32 @@ def _iter_paragraphs(document) -> Iterable:
                 yield from _iter_paragraphs(cell)
 
 
+def _looks_like_placeholder(text: str) -> bool:
+    """Heuristically detect placeholder text that should be replaced.
+
+    This is a fallback when color-based detection is unavailable (e.g., when
+    the template strips run-level color metadata but keeps placeholder markers).
+    """
+
+    stripped = text.strip()
+    if not stripped:
+        return False
+
+    if any(stripped.startswith(prefix) for prefix in ("<", "[[", "{")):
+        return True
+
+    return any(marker in stripped for marker in ("<", ">", "[[", "]]", "{", "}"))
+
+
 def _is_blue_run(run) -> bool:
+    """Detects common blue placeholder styling from templates.
+
+    Some templates encode the blue text as RGB values, others use theme colors
+    (e.g., ``ACCENT_1``) or raw ``w:val`` attributes. We normalize all the
+    available representations so placeholders in tables or styled paragraphs are
+    still recognized.
+    """
+
     color = getattr(run.font, "color", None)
     if not color:
         return False
@@ -25,12 +50,31 @@ def _is_blue_run(run) -> bool:
     rgb = getattr(color, "rgb", None)
     if rgb:
         rgb_text = str(rgb).lower()
-        if rgb_text in {"0000ff", "1f4e79", "2f5496"}:
+        if rgb_text in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
             return True
+
+    # ``val`` is used when the color comes from the theme or a direct hex code
+    val = getattr(color, "val", None)
+    if val:
+        if str(val).lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+            return True
+
+    try:  # pragma: no cover - depends on docx internals
+        from docx.oxml.ns import qn  # type: ignore
+
+        element = getattr(color, "_element", None)
+        if element is not None:
+            raw_val = element.get(qn("w:val"))
+            if raw_val and raw_val.lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+                return True
+    except Exception:
+        pass
 
     theme_color = getattr(color, "theme_color", None)
     if theme_color:
-        return "accent" in str(theme_color).lower()
+        theme_text = str(theme_color).lower()
+        if "accent" in theme_text:
+            return True
     return False
 
 
@@ -61,7 +105,13 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     lines = draft.splitlines() or [draft]
 
     for paragraph in _iter_paragraphs(doc):
-        if any(_is_blue_run(run) for run in getattr(paragraph, "runs", [])) and paragraph.text.strip():
+        runs = getattr(paragraph, "runs", [])
+        if any(_is_blue_run(run) for run in runs) and paragraph.text.strip():
+            _replace_paragraph_with_lines(paragraph, lines)
+            inserted = True
+            break
+
+        if any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             break
