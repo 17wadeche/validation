@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from flask import Flask, render_template_string, request, send_file
 
@@ -16,27 +17,28 @@ from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
 app = Flask(__name__)
 
 
-def _read_upload(file_storage) -> Optional[str]:
+def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str]]:
     if not file_storage:
-        return None
+        return None, None, None
     filename = file_storage.filename
     if not filename:
-        return None
+        return None, None, None
 
+    raw_bytes = file_storage.stream.read()
     suffix = Path(filename).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        file_storage.save(tmp.name)
-        return load_text_document(Path(tmp.name))
+        tmp.write(raw_bytes)
+        tmp.flush()
+        text = load_text_document(Path(tmp.name))
+    return text, raw_bytes, suffix
 
 
-def _gather_examples(uploaded_files, inline_example: str) -> List[Example]:
+def _gather_examples(uploaded_files) -> List[Example]:
     examples: List[Example] = []
     for file_storage in uploaded_files or []:
-        content = _read_upload(file_storage)
+        content, _, _ = _read_upload(file_storage)
         if content:
             examples.append(Example(title=file_storage.filename, context="", output=content))
-    if inline_example.strip():
-        examples.append(Example(title="Inline example", context="", output=inline_example.strip()))
     return examples
 
 
@@ -56,12 +58,12 @@ def _gather_code_context(code_files, inline_code: str) -> str:
     return "\n".join(snippets).strip()
 
 
-def _build_prompt_from_request(form, files) -> str:
-    template_text = _read_upload(files.get("template_file")) or form.get("template_text", "")
-    examples = _gather_examples(files.getlist("examples"), form.get("examples_text", ""))
+def _build_prompt_from_request(form, files) -> Tuple[str, Optional[bytes]]:
+    template_text, template_bytes, _ = _read_upload(files.get("template_file"))
+    template_text = template_text or form.get("template_text", "")
+    examples = _gather_examples(files.getlist("examples"))
     code_context = _gather_code_context(files.getlist("code_files"), form.get("code_context", ""))
-
-    return build_prompt(template_text, examples, code_context)
+    return build_prompt(template_text, examples, code_context), template_bytes
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -70,6 +72,7 @@ def index():
     draft: Optional[str] = None
     error: Optional[str] = None
     history: list[dict] = []
+    template_bytes: Optional[bytes] = None
 
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -88,7 +91,14 @@ def index():
     )
 
     if request.method == "POST":
-        prompt = _build_prompt_from_request(request.form, request.files)
+        prompt, template_bytes = _build_prompt_from_request(request.form, request.files)
+        if not template_bytes:
+            template_b64 = request.form.get("template_b64", "")
+            if template_b64:
+                try:
+                    template_bytes = base64.b64decode(template_b64)
+                except Exception:
+                    template_bytes = None
         action = request.form.get("action", "build")
 
         client = None
@@ -146,8 +156,14 @@ def index():
         elif action == "download":
             draft_text = request.form.get("draft_text", "")
             filename = request.form.get("filename", "validation_draft.docx") or "validation_draft.docx"
+            encoded_template = request.form.get("template_b64", "")
+            if encoded_template and not template_bytes:
+                try:
+                    template_bytes = base64.b64decode(encoded_template)
+                except Exception:
+                    template_bytes = None
             try:
-                docx_bytes = draft_to_docx_bytes(draft_text)
+                docx_bytes = draft_to_docx_bytes(draft_text, template_bytes=template_bytes)
             except DocxExportError as exc:
                 error = str(exc)
             else:
@@ -174,6 +190,7 @@ def index():
         defaults=defaults,
         history=history,
         stored=stored,
+        template_b64=base64.b64encode(template_bytes).decode("utf-8") if template_bytes else "",
     )
 
 
@@ -203,15 +220,13 @@ TEMPLATE = """
   <form method=\"post\" enctype=\"multipart/form-data\">
     <input type=\"hidden\" name=\"action\" value=\"build\">
     <div class=\"section\">
-      <label>Template</label><br>
-      <input type=\"file\" name=\"template_file\"> or paste text:
-      <textarea name=\"template_text\"></textarea>
+      <label>Template (upload the source file)</label><br>
+      <input type=\"file\" name=\"template_file\" required>
     </div>
 
     <div class=\"section\">
       <label>Examples (upload multiple files)</label><br>
-      <input type=\"file\" name=\"examples\" multiple> or paste an inline example:
-      <textarea name=\"examples_text\"></textarea>
+      <input type=\"file\" name=\"examples\" multiple>
     </div>
 
     <div class=\"section\">
@@ -222,7 +237,7 @@ TEMPLATE = """
 
     <div class=\"section\">
       <label>MedtronicGPT connection</label><br>
-      <input type=\"checkbox\" name=\"use_model\" id=\"use_model\"> <label for=\"use_model\">Generate draft with MedtronicGPT</label><br>
+      <input type=\"checkbox\" name=\"use_model\" id=\"use_model\" checked> <label for=\"use_model\">Generate draft with MedtronicGPT</label><br>
       <div style=\"margin-left: 1rem;\">
         <div><label>Model</label><br><input type=\"text\" name=\"model\" value=\"{{ defaults.model }}\" style=\"width:100%\"></div>
         <div><label>Base URL</label><br><input type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\" style=\"width:100%\"></div>
@@ -231,7 +246,7 @@ TEMPLATE = """
         <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\" style=\"width:100%\"></div>
         <div><label>API token</label><br><input type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\" style=\"width:100%\"></div>
         <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\" style=\"width:100%\"></div>
-        <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\"> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
+        <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
       </div>
     </div>
 
@@ -245,6 +260,7 @@ TEMPLATE = """
       <form method=\"post\" style=\"margin-top: 0.5rem;\">
         <input type=\"hidden\" name=\"action\" value=\"download\">
         <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
+        <input type=\"hidden\" name=\"template_b64\" value=\"{{ template_b64 }}\">
         <label>Word file name</label><br>
         <input type=\"text\" name=\"filename\" value=\"validation_draft.docx\" style=\"width: 50%;\"> <button type=\"submit\">Download as Word</button>
       </form>
