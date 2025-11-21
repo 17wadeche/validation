@@ -34,16 +34,9 @@ def _looks_like_placeholder(text: str) -> bool:
     return any(marker in stripped for marker in ("<", ">", "[[", "]]", "{", "}"))
 
 
-def _is_blue_run(run) -> bool:
-    """Detects common blue placeholder styling from templates.
+def _color_matches_blue(color) -> bool:
+    """Return True when a ``ColorFormat`` resembles the template's blue."""
 
-    Some templates encode the blue text as RGB values, others use theme colors
-    (e.g., ``ACCENT_1``) or raw ``w:val`` attributes. We normalize all the
-    available representations so placeholders in tables or styled paragraphs are
-    still recognized.
-    """
-
-    color = getattr(run.font, "color", None)
     if not color:
         return False
 
@@ -55,9 +48,8 @@ def _is_blue_run(run) -> bool:
 
     # ``val`` is used when the color comes from the theme or a direct hex code
     val = getattr(color, "val", None)
-    if val:
-        if str(val).lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
-            return True
+    if val and str(val).lower() in {"0000ff", "1f4e79", "2f5496", "2b579a"}:
+        return True
 
     try:  # pragma: no cover - depends on docx internals
         from docx.oxml.ns import qn  # type: ignore
@@ -73,8 +65,44 @@ def _is_blue_run(run) -> bool:
     theme_color = getattr(color, "theme_color", None)
     if theme_color:
         theme_text = str(theme_color).lower()
-        if "accent" in theme_text:
+        if "accent" in theme_text or "blue" in theme_text:
             return True
+
+    highlight = getattr(color, "highlight_color", None)
+    if highlight:
+        highlight_text = str(highlight).lower()
+        if "blue" in highlight_text or "accent" in highlight_text:
+            return True
+
+    return False
+
+
+def _is_blue_run(run) -> bool:
+    """Detects common blue placeholder styling from templates.
+
+    Some templates encode the blue text as RGB values, others use theme colors
+    (e.g., ``ACCENT_1``), highlight colors, or styling applied at the run or
+    paragraph level. We normalize all the available representations so
+    placeholders in tables or styled paragraphs are still recognized.
+    """
+
+    if _color_matches_blue(getattr(run.font, "color", None)):
+        return True
+
+    try:  # pragma: no cover - optional style metadata
+        run_style = getattr(run, "style", None)
+        if run_style and _color_matches_blue(getattr(run_style.font, "color", None)):
+            return True
+    except Exception:
+        pass
+
+    try:  # pragma: no cover - paragraph styles may carry the placeholder color
+        paragraph = getattr(run, "paragraph", None)
+        if paragraph and _color_matches_blue(getattr(paragraph.style.font, "color", None)):
+            return True
+    except Exception:
+        pass
+
     return False
 
 
