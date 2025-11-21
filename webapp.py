@@ -12,7 +12,7 @@ from src.validation_agent.prompt_builder import Example, build_prompt
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
-from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
+from src.validation_agent.docx_utils import DocxExportError, docx_bytes_to_html, draft_to_docx_bytes
 from src.validation_agent.storage import (
     SavedInputs,
     StoredFile,
@@ -116,6 +116,7 @@ def index():
     error: Optional[str] = None
     history: list[dict] = []
     template_bytes: Optional[bytes] = None
+    preview_html: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
 
@@ -230,7 +231,11 @@ def index():
         elif action == "build" and client:
             try:
                 draft = client.generate_completion(prompt, model=model)
+                docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
+                preview_html = docx_bytes_to_html(docx_bytes)
             except MedtronicGPTError as exc:
+                error = str(exc)
+            except DocxExportError as exc:
                 error = str(exc)
 
         if request.form.get("remember_inputs") == "on":
@@ -248,6 +253,7 @@ def index():
         history=history,
         stored=stored,
         saved_inputs=persisted_inputs,
+        preview_html=preview_html,
         template_b64=base64.b64encode(template_bytes).decode("utf-8")
         if template_bytes
         else (
@@ -322,6 +328,12 @@ TEMPLATE = """
     .chat { margin-top: 6px; }
     .error { border: 1px solid #ef4444; color: #fecdd3; background: rgba(239,68,68,0.08); padding: 12px 14px; border-radius: 12px; }
     .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
+    .preview { margin-top: 14px; background: #f8fafc; color: #0f172a; border-radius: 14px; padding: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); border: 1px solid rgba(15,23,42,0.1); }
+    .preview h4 { margin: 0 0 8px 0; color: #0f172a; }
+    .preview .doc-surface { background: #fff; border-radius: 10px; padding: 14px; border: 1px solid rgba(15,23,42,0.08); box-shadow: 0 6px 18px rgba(15,23,42,0.08); max-height: 520px; overflow: auto; }
+    .preview .doc-surface table { width: 100%; border-collapse: collapse; }
+    .preview .doc-surface table, .preview .doc-surface td, .preview .doc-surface th { border: 1px solid #cbd5e1; }
+    .preview .doc-surface td, .preview .doc-surface th { padding: 6px; }
   </style>
 </head>
 <body>
@@ -446,7 +458,15 @@ TEMPLATE = """
     {% if draft %}
       <div class=\"card\" style=\"margin-top: 20px;\">
         <div class=\"tagline\"><span class=\"pill\">Generated Draft</span><span>Grounded in your template, examples, and code</span></div>
-        <div class=\"output\" style=\"margin-top: 12px;\">{{ draft }}</div>
+        {% if preview_html %}
+          <div class=\"preview\">
+            <h4>Live preview</h4>
+            <div class=\"doc-surface\" aria-label=\"Draft preview\" tabindex=\"0\">{{ preview_html | safe }}</div>
+            <p style=\"margin: 10px 0 0; color: #475569;\">Download preserves tables, charts, and formatting from your template.</p>
+          </div>
+        {% else %}
+          <div class=\"output\" style=\"margin-top: 12px;\">{{ draft }}</div>
+        {% endif %}
         <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
           <input type=\"hidden\" name=\"action\" value=\"download\">
           <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">

@@ -3,6 +3,11 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Iterable, Optional
 
+try:  # pragma: no cover - optional dependency
+    from docx.enum.text import WD_BREAK  # type: ignore
+except Exception:  # pragma: no cover - optional dependency fallback
+    WD_BREAK = None
+
 
 class DocxExportError(RuntimeError):
     """Raised when a draft cannot be exported to DOCX."""
@@ -121,6 +126,39 @@ def _is_blue_run(run) -> bool:
     return False
 
 
+def _is_placeholder_run(run) -> bool:
+    """Detect placeholder runs using color, style, or instructional text."""
+
+    text = getattr(run, "text", "") or ""
+    stripped = text.strip()
+
+    if not stripped:
+        return False
+
+    if _is_blue_run(run):
+        return True
+
+    style = getattr(run, "style", None)
+    try:  # pragma: no cover - style lookups depend on template metadata
+        style_name = getattr(style, "name", "") or ""
+        if "placeholder" in style_name.lower():
+            return True
+    except Exception:
+        pass
+
+    lowered = stripped.lower()
+    if any(marker in lowered for marker in ("fill", "replace", "insert", "enter", "provided by")):
+        return True
+
+    if any(token in stripped for token in ("<", ">", "[[", "]]", "{", "}", "___")):
+        return True
+
+    if stripped.isupper() and len(stripped) > 6:
+        return True
+
+    return False
+
+
 def _replace_paragraph_with_lines(paragraph, lines: list[str]):
     style = paragraph.style
     parent = paragraph._parent
@@ -128,6 +166,20 @@ def _replace_paragraph_with_lines(paragraph, lines: list[str]):
     paragraph.style = style
     for line in lines[1:]:
         parent.add_paragraph(line, style=style)
+
+
+def _replace_run_with_draft(run, draft: str):
+    run.text = ""
+    parts = draft.splitlines() or [draft]
+    for idx, part in enumerate(parts):
+        if idx and WD_BREAK:
+            try:  # pragma: no cover - relies on optional enum
+                run.add_break(WD_BREAK.LINE)
+            except Exception:
+                run.add_text("\n")
+        elif idx:
+            run.add_text("\n")
+        run.add_text(part)
 
 
 def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> bytes:
@@ -148,13 +200,27 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     lines = draft.splitlines() or [draft]
 
     for paragraph in _iter_paragraphs(doc):
-        runs = getattr(paragraph, "runs", [])
-        if any(_is_blue_run(run) for run in runs) and paragraph.text.strip():
+        runs = list(getattr(paragraph, "runs", []))
+        for idx, run in enumerate(runs):
+            if _is_placeholder_run(run):
+                _replace_run_with_draft(run, draft)
+                for follower in runs[idx + 1 :]:
+                    if _is_placeholder_run(follower):
+                        follower.text = ""
+                    else:
+                        break
+                inserted = True
+                break
+
+        if inserted:
+            continue
+
+        if any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
 
-        if any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
+        if _looks_like_placeholder(paragraph.text):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
@@ -172,3 +238,19 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
+
+
+def docx_bytes_to_html(docx_bytes: bytes) -> Optional[str]:
+    """Render DOCX bytes to HTML for on-screen preview, if mammoth is installed."""
+
+    try:  # pragma: no cover - optional dependency
+        import mammoth  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        result = mammoth.convert_to_html(BytesIO(docx_bytes), style_map="p[style-name='Normal'] => p")
+    except Exception:
+        return None
+
+    return result.value if result else None
