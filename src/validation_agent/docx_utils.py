@@ -170,6 +170,41 @@ def _is_placeholder_run(run) -> bool:
     return False
 
 
+def _paragraph_placeholder_score(paragraph) -> int:
+    """Score how placeholder-like a paragraph is.
+
+    This helps catch template placeholders that are split across runs or rely
+    on paragraph-level styling instead of run-level color metadata.
+    """
+
+    score = 0
+
+    try:
+        if _color_matches_blue(getattr(paragraph.style.font, "color", None)):
+            score += 2
+    except Exception:
+        pass
+
+    runs = getattr(paragraph, "runs", []) or []
+    if not runs:
+        return score
+
+    for run in runs:
+        if _is_placeholder_run(run):
+            score += 3
+        elif _is_blue_run(run):
+            score += 2
+
+    text = (paragraph.text or "").strip()
+    if text and _looks_instructional(text):
+        score += 1
+
+    if _looks_like_placeholder(text):
+        score += 2
+
+    return score
+
+
 def _looks_instructional(text: str) -> bool:
     """Detect paragraphs that read like instructions even without markers/colors."""
 
@@ -231,9 +266,16 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     lines = draft.splitlines() or [draft]
 
     candidate_paragraph = None
+    best_scored_paragraph = None
+    best_score = 0
 
     for paragraph in _iter_paragraphs(doc):
         runs = list(getattr(paragraph, "runs", []))
+        score = _paragraph_placeholder_score(paragraph)
+        if score > best_score:
+            best_score = score
+            best_scored_paragraph = paragraph
+
         for idx, run in enumerate(runs):
             if _is_placeholder_run(run):
                 _replace_run_with_draft(run, draft)
@@ -269,6 +311,10 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
 
     if not inserted and candidate_paragraph:
         _replace_paragraph_with_lines(candidate_paragraph, lines)
+        inserted = True
+
+    if not inserted and best_scored_paragraph and best_score >= 3:
+        _replace_paragraph_with_lines(best_scored_paragraph, lines)
         inserted = True
 
     if not inserted:

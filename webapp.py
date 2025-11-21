@@ -478,15 +478,17 @@ TEMPLATE = """
     {% if draft %}
       <div class=\"card\" style=\"margin-top: 20px;\">
         <div class=\"tagline\"><span class=\"pill\">Generated Draft</span><span>Grounded in your template, examples, and code</span></div>
-        {% if preview_html %}
-          <div class=\"preview\">
-            <h4>Live preview</h4>
-            <div class=\"doc-surface\" aria-label=\"Draft preview\" tabindex=\"0\">{{ preview_html | safe }}</div>
-            <p style=\"margin: 10px 0 0; color: #475569;\">Download preserves tables, charts, and formatting from your template.</p>
+        <div class=\"preview\">
+          <h4>Live preview</h4>
+          <div class=\"doc-surface\" aria-label=\"Draft preview\" tabindex=\"0\">
+            <div id=\"docx-preview\" aria-label=\"Rendered Word preview\" style=\"min-height: 220px;\"></div>
+            {% if preview_html %}
+              <div id=\"html-preview\" style=\"margin-top: 12px; display: none;\">{{ preview_html | safe }}</div>
+            {% endif %}
+            <div id=\"text-preview\" class=\"output\" style=\"margin-top: 12px; display: none;\">{{ draft }}</div>
           </div>
-        {% else %}
-          <div class=\"output\" style=\"margin-top: 12px;\">{{ draft }}</div>
-        {% endif %}
+          <p style=\"margin: 10px 0 0; color: #475569;\">Preview mirrors the template layout when Word rendering succeeds; download always reuses your template.</p>
+        </div>
         <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
           <input type=\"hidden\" name=\"action\" value=\"download\">
           <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
@@ -532,6 +534,38 @@ TEMPLATE = """
       {% endif %}
     </div>
   </div>
+  <script src="https://unpkg.com/docx-preview@0.5.3/dist/docx-preview.min.js"></script>
+  <script>
+    (function() {
+      const docxData = "{{ docx_b64 or '' }}";
+      const docxContainer = document.getElementById('docx-preview');
+      const htmlPreview = document.getElementById('html-preview');
+      const textPreview = document.getElementById('text-preview');
+
+      async function renderDocx() {
+        if (!docxData || !docxContainer || typeof docx === 'undefined') {
+          if (htmlPreview) htmlPreview.style.display = 'block';
+          if (textPreview) textPreview.style.display = 'block';
+          return;
+        }
+
+        const binary = atob(docxData);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+        try {
+          docx.renderAsync(bytes.buffer, docxContainer, docx.defaultOptions);
+        } catch (err) {
+          console.error('Docx preview failed', err);
+          if (htmlPreview) htmlPreview.style.display = 'block';
+          else if (textPreview) textPreview.style.display = 'block';
+        }
+      }
+
+      renderDocx();
+    })();
+  </script>
 </body>
 </html>
 """

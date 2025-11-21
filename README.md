@@ -27,7 +27,7 @@ Prompts are assembled internally; the UI surfaces only the generated output. Pro
 
 ## Web UI with MedtronicGPT
 
-1. Install UI dependencies (add `mammoth` for in-browser Word previews):
+1. Install UI dependencies (add `mammoth` for an HTML fallback preview):
 
 ```bash
 pip install flask python-docx mammoth
@@ -44,7 +44,7 @@ python webapp.py
    - Saved credentials live at `~/.validation_agent/credentials.json` for reuse in both drafting and chat.
    - Saved templates/examples live at `~/.validation_agent/inputs.json`. If you leave the upload fields empty on a later visit, the stored template/examples are preselected automatically; uncheck the saved file rows to drop them or upload replacements to overwrite.
    - After a draft is generated, you can download it as a Word document directly from the UI; when you upload a Word template, the download reuses that template as the base document to preserve tables, charts, and formatting. Blue placeholder text inside the template is replaced in place—even when the color comes from theme accents, custom hex values, paragraph/run styles, highlight colors, or style-level placeholder names—so tables and inline formatting remain intact. Explicit placeholders `[[GENERATED_DRAFT]]`, `<GENERATED_DRAFT>`, or `{GENERATED_DRAFT}` are also honored. If no placeholder is found, the draft text is appended without altering existing template elements.
-   - When `mammoth` is installed, the Generated Draft section renders a live on-page preview of the Word output so you can visually confirm tables, charts, and formatting before downloading. Without `mammoth`, the raw draft text is shown instead.
+   - The Generated Draft section now streams the DOCX through a client-side renderer so the preview mirrors the Word template (including tables and charts). If rendering fails or the browser blocks it, the page falls back to an HTML preview when `mammoth` is installed; otherwise raw draft text is shown.
    - Use the **Clarify or refine via chat** panel to ask MedtronicGPT follow-up questions when a template field or code behavior is unclear. The chat reuses the saved credentials and keeps conversation history in the page.
 
 Draft responses are expected to mirror the template exactly—only placeholder text should change while headings, bullets, tables, and formatting remain intact. When the model lacks sufficient detail to fill a placeholder, it will ask concise clarifying questions instead of guessing.
