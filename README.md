@@ -38,7 +38,7 @@ pip install flask
 python webapp.py
 ```
 
-3. Open `http://localhost:8000` and upload your template, requirements, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, and `refresh-token` (API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`).
+3. Open `http://localhost:8000` and upload your template, requirements, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`).
 
 The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT.
 

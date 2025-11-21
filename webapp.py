@@ -73,6 +73,7 @@ def index():
 
         use_model = request.form.get("use_model") == "on"
         if use_model:
+            model = request.form.get("model", "").strip() or "gpt-41"
             client = MedtronicGPTClient(
                 base_url=request.form.get("base_url", "").strip() or MedtronicGPTClient.DEFAULT_BASE_URL,
                 api_version=request.form.get("api_version", "").strip() or MedtronicGPTClient.DEFAULT_API_VERSION,
@@ -81,7 +82,7 @@ def index():
                 refresh_token=request.form.get("refresh_token", "").strip(),
             )
             try:
-                draft = client.generate_completion(prompt)
+                draft = client.generate_completion(prompt, model=model)
             except MedtronicGPTError as exc:
                 error = str(exc)
 
@@ -93,6 +94,7 @@ def index():
         defaults={
             "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
             "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
+            "model": "gpt-41",
         },
     )
 
@@ -149,6 +151,7 @@ TEMPLATE = """
       <label>MedtronicGPT connection</label><br>
       <input type=\"checkbox\" name=\"use_model\" id=\"use_model\"> <label for=\"use_model\">Generate draft with MedtronicGPT</label><br>
       <div style=\"margin-left: 1rem;\">
+        <div><label>Model</label><br><input type=\"text\" name=\"model\" value=\"{{ defaults.model }}\" style=\"width:100%\"></div>
         <div><label>Base URL</label><br><input type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\" style=\"width:100%\"></div>
         <div><label>API version</label><br><input type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\" style=\"width:100%\"></div>
         <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" style=\"width:100%\"></div>

@@ -20,12 +20,15 @@ class MedtronicGPTClient:
     DEFAULT_BASE_URL = "https://api.gpt-dev.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
 
-    def generate_completion(self, prompt: str, model: str = "medtronicgpt") -> str:
+    def generate_completion(self, prompt: str, model: str = "gpt-41") -> str:
         if not prompt.strip():
             raise MedtronicGPTError("Prompt is empty; supply template, requirements, examples, and code context.")
 
-        url = f"{self.base_url.rstrip('/')}/chat/completions?{parse.urlencode({'api-version': self.api_version})}"
-        payload = json.dumps({"model": model, "messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
+        url = (
+            f"{self.base_url.rstrip('/')}/models/{parse.quote(model)}"
+            f"?{parse.urlencode({'api-version': self.api_version})}"
+        )
+        payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
             "Ocp-Apim-Subscription-Key": self.subscription_key,
