@@ -262,118 +262,234 @@ TEMPLATE = """
 <head>
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <title>Validation Draft UI</title>
+  <title>Validation Draft Builder</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2rem; }
-    textarea { width: 100%; height: 120px; }
-    .section { margin-bottom: 1.5rem; }
-    .output { white-space: pre-wrap; background: #f6f8fa; padding: 1rem; border-radius: 6px; }
-    label { font-weight: bold; }
+    :root {
+      --bg: #0f172a;
+      --panel: #0b1220;
+      --card: #111a2f;
+      --muted: #8da2c0;
+      --accent: #3b82f6;
+      --accent-2: #22d3ee;
+      --border: rgba(255,255,255,0.08);
+      --shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(34, 211, 238, 0.12), transparent 35%),
+                  radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.12), transparent 25%),
+                  var(--bg);
+      color: #eef2ff;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); }
+    h1, h2, h3 { margin: 0; }
+    .page { max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px; }
+    .header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; margin-bottom: 24px;
+    }
+    .badge { padding: 8px 12px; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: var(--accent); font-weight: 600; font-size: 14px; }
+    .subtitle { color: var(--muted); margin-top: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+    .card {
+      background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(6px);
+    }
+    .card h3 { margin-bottom: 10px; }
+    .card p { color: var(--muted); margin: 6px 0 12px; }
+    .input, textarea, select { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: #fff; font-size: 14px; }
+    .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(59,130,246,0.5); border-color: rgba(59,130,246,0.3); }
+    textarea { min-height: 110px; resize: vertical; }
+    .checkbox { display: flex; align-items: center; gap: 8px; color: #dbeafe; }
+    .checkbox input { width: 16px; height: 16px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+    .btn {
+      border: none; cursor: pointer; border-radius: 12px; padding: 12px 16px; font-weight: 700; font-size: 15px;
+      transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), #2563eb); color: #fff; box-shadow: 0 12px 30px rgba(37, 99, 235, 0.35); }
+    .btn-ghost { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid var(--border); }
+    .btn:hover { transform: translateY(-1px); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+    .output { white-space: pre-wrap; background: rgba(15,23,42,0.8); border: 1px solid var(--border); padding: 16px; border-radius: 14px; min-height: 140px; }
+    .chat { margin-top: 6px; }
+    .error { border: 1px solid #ef4444; color: #fecdd3; background: rgba(239,68,68,0.08); padding: 12px 14px; border-radius: 12px; }
+    .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
   </style>
 </head>
 <body>
-  <h1>Validation Draft Builder</h1>
-  <p>Upload your template, examples, and code context to generate a MedtronicGPT draft. Any required guidance should live inside the template (for example, blue placeholder text). The UI focuses on the completed output and keeps prompts hidden.</p>
-
-  {% if error %}
-    <div style=\"color: red;\"><strong>Error:</strong> {{ error }}</div>
-  {% endif %}
-
-  <form method=\"post\" enctype=\"multipart/form-data\">
-    <input type=\"hidden\" name=\"action\" value=\"build\">
-    <div class=\"section\">
-      <label>Template (upload the source file)</label><br>
-      <input type=\"file\" name=\"template_file\">
-      {% if saved_inputs.template %}
-        <div style=\"margin-top: 0.5rem;\">
-          <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\"> <label for=\"remove_template\">Remove saved template ({{ saved_inputs.template.name }})</label>
-          <div style=\"font-size: 0.9rem; color: #555;\">If you don't upload a new template, the saved file will be reused unless removed.</div>
-        </div>
-      {% endif %}
-    </div>
-
-    <div class=\"section\">
-      <label>Examples (upload multiple files)</label><br>
-      <input type=\"file\" name=\"examples\" multiple>
-      {% if saved_inputs.examples %}
-        <div style=\"margin-top: 0.5rem;\">
-          <div style=\"font-weight: bold;\">Saved examples:</div>
-          {% for example in saved_inputs.examples %}
-            <div>
-              <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
-              <label for=\"keep_example_{{ loop.index0 }}\">Reuse {{ example.name }}</label>
-            </div>
-          {% endfor %}
-          <div style=\"font-size: 0.9rem; color: #555;\">Uncheck to drop saved examples. Upload new files to replace or add to the list.</div>
-        </div>
-      {% endif %}
-    </div>
-
-    <div class=\"section\">
-      <label>Code context (upload files and/or paste)</label><br>
-      <input type=\"file\" name=\"code_files\" multiple>
-      <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\"></textarea>
-    </div>
-
-    <div class=\"section\">
-      <label>MedtronicGPT connection</label><br>
-      <input type=\"checkbox\" name=\"use_model\" id=\"use_model\" checked> <label for=\"use_model\">Generate draft with MedtronicGPT</label><br>
-      <div style=\"margin-left: 1rem;\">
-        <div><label>Model</label><br><input type=\"text\" name=\"model\" value=\"{{ defaults.model }}\" style=\"width:100%\"></div>
-        <div><label>Base URL</label><br><input type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\" style=\"width:100%\"></div>
-        <div><label>API version</label><br><input type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\" style=\"width:100%\"></div>
-        <div><label>Completions path template</label><br><input type=\"text\" name=\"path_template\" value=\"{{ defaults.path_template }}\" style=\"width:100%\"></div>
-        <div><label>Subscription key</label><br><input type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\" style=\"width:100%\"></div>
-        <div><label>API token</label><br><input type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\" style=\"width:100%\"></div>
-        <div><label>Refresh token</label><br><input type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\" style=\"width:100%\"></div>
-      <div><input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked> <label for=\"remember_credentials\">Remember credentials on this machine</label></div>
-      <div><input type=\"checkbox\" name=\"remember_inputs\" id=\"remember_inputs\" checked> <label for=\"remember_inputs\">Remember template and examples on this machine</label></div>
+  <div class=\"page\">
+    <div class=\"header\">
+      <div>
+        <div class=\"badge\">Medtronic Validation</div>
+        <h1>Validation Draft Builder</h1>
+        <div class=\"subtitle\">Upload your template and examples, then generate a completed draft with MedtronicGPT. Blue placeholder text is replaced in-place so your tables and formatting stay intact.</div>
       </div>
     </div>
 
-    <button type=\"submit\">Build</button>
-  </form>
+    {% if error %}
+      <div class=\"error\"><strong>Error:</strong> {{ error }}</div>
+    {% endif %}
 
-  {% if draft %}
-    <div class=\"section\">
-      <h2>Generated Draft</h2>
-      <div class=\"output\">{{ draft }}</div>
-      <form method=\"post\" style=\"margin-top: 0.5rem;\">
-        <input type=\"hidden\" name=\"action\" value=\"download\">
-        <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
-        <input type=\"hidden\" name=\"template_b64\" value=\"{{ template_b64 }}\">
-        <label>Word file name</label><br>
-        <input type=\"text\" name=\"filename\" value=\"validation_draft.docx\" style=\"width: 50%;\"> <button type=\"submit\">Download as Word</button>
-      </form>
-    </div>
-  {% endif %}
+    <form method=\"post\" enctype=\"multipart/form-data\">
+      <input type=\"hidden\" name=\"action\" value=\"build\">
+      <div class=\"grid\">
+        <div class=\"card\">
+          <div class=\"tagline\"><span class=\"pill\">Template</span><span>Upload the source file to preserve layout</span></div>
+          <div style=\"margin-top: 12px;\">
+            <input class=\"input\" type=\"file\" name=\"template_file\">
+          </div>
+          {% if saved_inputs.template %}
+            <div style=\"margin-top: 12px;\">
+              <label class=\"checkbox\">
+                <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\">
+                <span>Remove saved template ({{ saved_inputs.template.name }})</span>
+              </label>
+              <p style=\"margin: 6px 0 0;\">If you skip an upload, the saved template will be reused.</p>
+            </div>
+          {% endif %}
+        </div>
 
-  <div class=\"section\">
-    <h2>Clarify or refine via chat</h2>
-    <p>Use this chat to ask MedtronicGPT for clarifications or follow-up questions when something in the template or code context is unclear.</p>
-    <form method=\"post\">
-      <input type=\"hidden\" name=\"action\" value=\"chat\">
-      <input type=\"hidden\" name=\"use_model\" value=\"on\">
-      <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">
-      <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
-      <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
-      <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
-      <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
-      <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
-      <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
-      <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
+        <div class=\"card\">
+          <div class=\"tagline\"><span class=\"pill\">Examples</span><span>Upload multiple files to guide tone and structure</span></div>
+          <div style=\"margin-top: 12px;\">
+            <input class=\"input\" type=\"file\" name=\"examples\" multiple>
+          </div>
+          {% if saved_inputs.examples %}
+            <div style=\"margin-top: 12px;\">
+              <div class=\"pill\" style=\"background: rgba(34,211,238,0.1); color: #67e8f9; border-color: rgba(34,211,238,0.4);\">Saved examples</div>
+              {% for example in saved_inputs.examples %}
+                <label class=\"checkbox\" style=\"margin-top: 8px;\">
+                  <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
+                  <span>Reuse {{ example.name }}</span>
+                </label>
+              {% endfor %}
+              <p style=\"margin: 8px 0 0;\">Uncheck to drop saved examples; upload to add or replace.</p>
+            </div>
+          {% endif %}
+        </div>
 
-      <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"height: 80px;\"></textarea><br>
-      <button type=\"submit\">Send</button>
+        <div class=\"card\">
+          <div class=\"tagline\"><span class=\"pill\">Code context</span><span>Provide supporting snippets</span></div>
+          <div style=\"margin-top: 12px;\">
+            <input class=\"input\" type=\"file\" name=\"code_files\" multiple>
+          </div>
+          <div style=\"margin-top: 10px;\">
+            <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\"></textarea>
+          </div>
+        </div>
+
+        <div class=\"card\">
+          <div class=\"tagline\"><span class=\"pill\">MedtronicGPT</span><span>Connection is pre-enabled</span></div>
+          <div style=\"margin-top: 12px;\">
+            <label class=\"checkbox\">
+              <input type=\"checkbox\" name=\"use_model\" id=\"use_model\" checked>
+              <span>Generate draft with MedtronicGPT</span>
+            </label>
+          </div>
+          <div class=\"grid\" style=\"grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px;\">
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Model</label>
+              <input class=\"input\" type=\"text\" name=\"model\" value=\"{{ defaults.model }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Base URL</label>
+              <input class=\"input\" type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">API version</label>
+              <input class=\"input\" type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Completions path</label>
+              <input class=\"input\" type=\"text\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Subscription key</label>
+              <input class=\"input\" type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">API token</label>
+              <input class=\"input\" type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\">
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Refresh token</label>
+              <input class=\"input\" type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
+            </div>
+          </div>
+          <div class=\"actions\" style=\"margin-top: 12px;\">
+            <label class=\"checkbox\">
+              <input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked>
+              <span>Remember credentials on this machine</span>
+            </label>
+            <label class=\"checkbox\">
+              <input type=\"checkbox\" name=\"remember_inputs\" id=\"remember_inputs\" checked>
+              <span>Remember template and examples on this machine</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class=\"actions\" style=\"margin-top: 18px;\">
+        <button class=\"btn btn-primary\" type=\"submit\">Generate draft</button>
+        <div class=\"pill\">Prompts stay hidden; only the completed output is shown.</div>
+      </div>
     </form>
 
-    {% if history %}
-      <div class=\"output\" style=\"margin-top: 0.75rem;\">
-        {% for message in history %}
-          <strong>{{ message.role|capitalize }}:</strong> {{ message.content }}<br>
-        {% endfor %}
+    {% if draft %}
+      <div class=\"card\" style=\"margin-top: 20px;\">
+        <div class=\"tagline\"><span class=\"pill\">Generated Draft</span><span>Grounded in your template, examples, and code</span></div>
+        <div class=\"output\" style=\"margin-top: 12px;\">{{ draft }}</div>
+        <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
+          <input type=\"hidden\" name=\"action\" value=\"download\">
+          <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
+          <input type=\"hidden\" name=\"template_b64\" value=\"{{ template_b64 }}\">
+          <div style=\"flex: 1; min-width: 220px;\">
+            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Word file name</label>
+            <input class=\"input\" type=\"text\" name=\"filename\" value=\"validation_draft.docx\">
+          </div>
+          <button class=\"btn btn-primary\" type=\"submit\">Download as Word</button>
+        </form>
       </div>
     {% endif %}
+
+    <div class=\"card\" style=\"margin-top: 18px;\">
+      <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span><span>Let MedtronicGPT ask for missing details</span></div>
+      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs before downloading. The agent will ask concise follow-up questions when something in the template or code is ambiguous.</p>
+      <form method=\"post\" class=\"chat\">
+        <input type=\"hidden\" name=\"action\" value=\"chat\">
+        <input type=\"hidden\" name=\"use_model\" value=\"on\">
+        <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">
+        <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
+        <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
+        <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
+        <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
+        <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
+        <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
+        <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
+
+        <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"min-height: 80px;\"></textarea>
+        <div class=\"actions\" style=\"margin-top: 10px;\">
+          <button class=\"btn btn-ghost\" type=\"submit\">Send</button>
+          <div class=\"pill\">Chat stays aligned to your uploaded context.</div>
+        </div>
+      </form>
+
+      {% if history %}
+        <div class=\"output\" style=\"margin-top: 12px;\">
+          {% for message in history %}
+            <div style=\"margin-bottom: 8px;\"><strong>{{ message.role|capitalize }}:</strong> {{ message.content }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
   </div>
 </body>
 </html>
