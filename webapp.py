@@ -194,7 +194,7 @@ TEMPLATE = """
 </head>
 <body>
   <h1>Validation Draft Builder</h1>
-  <p>Upload your template, examples, and code context to build a prompt or generate a draft via MedtronicGPT. Any required guidance should live inside the template (for example, blue placeholder text).</p>
+  <p>Upload your template, examples, and code context to generate a MedtronicGPT draft. Any required guidance should live inside the template (for example, blue placeholder text). The UI focuses on the completed output and keeps prompts hidden.</p>
 
   {% if error %}
     <div style=\"color: red;\"><strong>Error:</strong> {{ error }}</div>
@@ -237,13 +237,6 @@ TEMPLATE = """
 
     <button type=\"submit\">Build</button>
   </form>
-
-  {% if prompt %}
-    <div class=\"section\">
-      <h2>Prompt</h2>
-      <div class=\"output\">{{ prompt }}</div>
-    </div>
-  {% endif %}
 
   {% if draft %}
     <div class=\"section\">

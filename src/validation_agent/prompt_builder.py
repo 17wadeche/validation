@@ -70,8 +70,9 @@ def format_examples(examples: Iterable[Example]) -> str:
 def build_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
     prompt_sections = [
         "You are an AI assistant that drafts Medtronic validation documentation.",
-        "Follow the provided template exactly, replacing placeholders (highlighted in blue in the template) with project-specific content.",
+        "Follow the provided template exactly, replacing placeholders (highlighted in blue in the template) with project-specific content while preserving every heading, bullet, table, and piece of surrounding text.",
         "Use the program code context to ground statements and avoid inventing functionality.",
+        "If any placeholder cannot be confidently completed from the provided materials, ask concise clarifying questions before delivering the draft.",
     ]
 
     prompt_sections.append("\n## Template\n" + template.strip())
@@ -88,10 +89,11 @@ def build_prompt(template: str, examples: Iterable[Example], code_context: str) 
     )
 
     prompt_sections.append(
-        "\n## Expected output\n"
-        "Produce a complete validation draft ready for compliance review."
-        " Maintain clear traceability to the template placeholders, articulate test rationale,"
-        " and avoid inventing functionality that is not evidenced in the code context."
+        "\n## Response rules\n"
+        "- Preserve the template's structure and formatting exactly; replace only the placeholder text while keeping all other content unchanged.\n"
+        "- If clarification is required, respond with concise follow-up questions instead of guessing.\n"
+        "- When information is sufficient, return only the completed validation draft (no prompt restatement, commentary, or code fences).\n"
+        "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
     )
 
     return "\n\n".join(prompt_sections).strip() + "\n"

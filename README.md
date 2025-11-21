@@ -23,7 +23,7 @@ You can also substitute the template and example arguments with Word (`.docx`) f
 
 The template should carry all guidance and placeholders (e.g., blue text) that need to be completed—no separate requirements upload is necessary.
 
-The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts. Add `--docx-output` to emit a Word document (requires `python-docx`).
+Prompts are assembled internally; the UI surfaces only the generated output. Provide an LLM callable to `ValidationAgent` to automatically produce drafts. Add `--docx-output` to emit a Word document (requires `python-docx`).
 
 ## Web UI with MedtronicGPT
 
@@ -44,6 +44,8 @@ python webapp.py
    - Toggle **Remember credentials on this machine** to persist the gateway tokens to `~/.validation_agent/credentials.json` for reuse.
    - After a draft is generated, you can download it as a Word document directly from the UI.
    - Use the **Clarify or refine via chat** panel to ask MedtronicGPT follow-up questions when a template field or code behavior is unclear. The chat reuses the saved credentials and keeps conversation history in the page.
+
+Draft responses are expected to mirror the template exactly—only placeholder text should change while headings, bullets, tables, and formatting remain intact. When the model lacks sufficient detail to fill a placeholder, it will ask concise clarifying questions instead of guessing.
 
 The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT. Validation instructions should come from the template (including any blue placeholder text).
 
