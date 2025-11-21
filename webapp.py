@@ -117,6 +117,7 @@ def index():
     history: list[dict] = []
     template_bytes: Optional[bytes] = None
     preview_html: Optional[str] = None
+    docx_b64: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
 
@@ -208,7 +209,24 @@ def index():
         elif action == "download":
             draft_text = request.form.get("draft_text", "")
             filename = request.form.get("filename", "validation_draft.docx") or "validation_draft.docx"
+            encoded_docx = request.form.get("docx_b64", "")
             encoded_template = request.form.get("template_b64", "")
+            if encoded_docx:
+                try:
+                    docx_bytes = base64.b64decode(encoded_docx)
+                except Exception:
+                    docx_bytes = None
+                else:
+                    buffer = tempfile.SpooledTemporaryFile()
+                    buffer.write(docx_bytes)
+                    buffer.seek(0)
+                    return send_file(
+                        buffer,
+                        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        download_name=filename,
+                        as_attachment=True,
+                    )
+
             if encoded_template and not template_bytes:
                 try:
                     template_bytes = base64.b64decode(encoded_template)
@@ -232,6 +250,7 @@ def index():
             try:
                 draft = client.generate_completion(prompt, model=model)
                 docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
+                docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
                 preview_html = docx_bytes_to_html(docx_bytes)
             except MedtronicGPTError as exc:
                 error = str(exc)
@@ -254,6 +273,7 @@ def index():
         stored=stored,
         saved_inputs=persisted_inputs,
         preview_html=preview_html,
+        docx_b64=docx_b64,
         template_b64=base64.b64encode(template_bytes).decode("utf-8")
         if template_bytes
         else (
@@ -470,6 +490,7 @@ TEMPLATE = """
         <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
           <input type=\"hidden\" name=\"action\" value=\"download\">
           <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
+          <input type=\"hidden\" name=\"docx_b64\" value=\"{{ docx_b64 or '' }}\">
           <input type=\"hidden\" name=\"template_b64\" value=\"{{ template_b64 }}\">
           <div style=\"flex: 1; min-width: 220px;\">
             <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Word file name</label>

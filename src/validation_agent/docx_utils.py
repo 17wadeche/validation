@@ -14,12 +14,23 @@ class DocxExportError(RuntimeError):
 
 
 def _iter_paragraphs(document) -> Iterable:
+    """Yield all paragraphs, including tables, headers, and footers."""
+
     for paragraph in document.paragraphs:
         yield paragraph
+
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
                 yield from _iter_paragraphs(cell)
+
+    for section in getattr(document, "sections", []) or []:
+        for hdr in (section.header, section.first_page_header, section.even_page_header):
+            if hdr:
+                yield from _iter_paragraphs(hdr)
+        for ftr in (section.footer, section.first_page_footer, section.even_page_footer):
+            if ftr:
+                yield from _iter_paragraphs(ftr)
 
 
 def _looks_like_placeholder(text: str) -> bool:
@@ -159,6 +170,26 @@ def _is_placeholder_run(run) -> bool:
     return False
 
 
+def _looks_instructional(text: str) -> bool:
+    """Detect paragraphs that read like instructions even without markers/colors."""
+
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+
+    phrases = (
+        "enter ",
+        "describe ",
+        "provide ",
+        "summarize ",
+        "explain ",
+        "insert ",
+        "complete ",
+    )
+
+    return any(lowered.startswith(p) or f" {p}" in lowered for p in phrases)
+
+
 def _replace_paragraph_with_lines(paragraph, lines: list[str]):
     style = paragraph.style
     parent = paragraph._parent
@@ -199,6 +230,8 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     placeholders = ["[[GENERATED_DRAFT]]", "<GENERATED_DRAFT>", "{GENERATED_DRAFT}"]
     lines = draft.splitlines() or [draft]
 
+    candidate_paragraph = None
+
     for paragraph in _iter_paragraphs(doc):
         runs = list(getattr(paragraph, "runs", []))
         for idx, run in enumerate(runs):
@@ -225,11 +258,18 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             inserted = True
             continue
 
+        if not candidate_paragraph and _looks_instructional(paragraph.text):
+            candidate_paragraph = paragraph
+
         for placeholder in placeholders:
             if placeholder in paragraph.text:
                 _replace_paragraph_with_lines(paragraph, lines)
                 inserted = True
                 break
+
+    if not inserted and candidate_paragraph:
+        _replace_paragraph_with_lines(candidate_paragraph, lines)
+        inserted = True
 
     if not inserted:
         for line in lines:
