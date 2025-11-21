@@ -14,13 +14,13 @@ class MedtronicGPTClient:
     subscription_key: str
     api_token: str
     refresh_token: str
-    base_url: str = "https://api.gpt-dev.medtronic.com"
+    base_url: str = "https://api.gpt.medtronic.com"
     api_version: str = "3.0"
-    path_template: str = "/openai/deployments/{model}/chat/completions"
+    path_template: str = "/models/{model}"
 
-    DEFAULT_BASE_URL = "https://api.gpt-dev.medtronic.com"
+    DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
-    DEFAULT_PATH_TEMPLATE = "/openai/deployments/{model}/chat/completions"
+    DEFAULT_PATH_TEMPLATE = "/models/{model}"
 
     def generate_completion(self, prompt: str, model: str = "gpt-41") -> str:
         if not prompt.strip():
@@ -29,16 +29,14 @@ class MedtronicGPTClient:
         path = self.path_template.format(model=parse.quote(model, safe=""))
         if not path.startswith("/"):
             path = f"/{path}"
-        url = (
-            f"{self.base_url.rstrip('/')}{path}"
-            f"?{parse.urlencode({'api-version': self.api_version})}"
-        )
+        url = f"{self.base_url.rstrip('/')}{path}"
         payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
             "Ocp-Apim-Subscription-Key": self.subscription_key,
             "api-token": self.api_token,
             "refresh-token": self.refresh_token,
+            "api-version": self.api_version,
         }
 
         req = request.Request(url, data=payload, headers=headers)

@@ -38,7 +38,7 @@ pip install flask
 python webapp.py
 ```
 
-3. Open `http://localhost:8000` and upload your template, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`). The UI uses the Azure-style path template `/openai/deployments/{model}/chat/completions` by default; adjust it if your gateway exposes a different path.
+3. Open `http://localhost:8000` and upload your template, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, `refresh-token`, and desired `model` (defaults to `gpt-41`; API version `3.0`, base URL `https://api.gpt.medtronic.com`). The UI sends `api-version` as a header and defaults to the path template `/models/{model}`—aligning with the working Postman example. Adjust the path if your gateway expects an alternate route.
 
 The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT. Validation instructions should come from the template (including any blue placeholder text).
 
