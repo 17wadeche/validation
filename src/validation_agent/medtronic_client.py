@@ -33,7 +33,7 @@ class MedtronicGPTClient:
         payload = json.dumps({"messages": [{"role": "user", "content": prompt}]}).encode("utf-8")
         headers = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": self.subscription_key,
+            "subscription-key": self.subscription_key,
             "api-token": self.api_token,
             "refresh-token": self.refresh_token,
             "api-version": self.api_version,
