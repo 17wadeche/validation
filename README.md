@@ -24,6 +24,24 @@ You can also substitute the template and example arguments with Word (`.docx`) f
 
 The default behavior prints the assembled prompt. Provide an LLM callable to `ValidationAgent` to automatically produce drafts.
 
+## Web UI with MedtronicGPT
+
+1. Install UI dependencies:
+
+```bash
+pip install flask
+```
+
+2. Start the UI server:
+
+```bash
+python webapp.py
+```
+
+3. Open `http://localhost:8000` and upload your template, requirements, examples, and code context. Optional: check **Generate draft with MedtronicGPT** and provide your `subscription-key`, `api-token`, and `refresh-token` (API version `3.0`, base URL `https://api.gpt-dev.medtronic.com`).
+
+The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT.
+
 ## Extending
 
 - `src/validation_agent/prompt_builder.py` builds the prompt sections from the provided inputs.
