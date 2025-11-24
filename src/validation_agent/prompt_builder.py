@@ -122,7 +122,7 @@ def build_prompt(
         "You are an AI assistant that drafts Medtronic validation documentation.",
         "Follow the provided template exactly, replacing placeholders (highlighted in blue in the template) with project-specific content while preserving every heading, bullet, table, and piece of surrounding text.",
         "Use the program code context to ground statements and avoid inventing functionality.",
-        "If any placeholder cannot be confidently completed from the provided materials, ask concise clarifying questions before delivering the draft.",
+        "Fill every placeholder you can from the provided information before asking for anything else—only ask clarifying questions for the gaps that remain.",
     ]
 
     prompt_sections.append("\n## Template\n" + template.strip())
@@ -131,7 +131,7 @@ def build_prompt(
     if placeholders:
         prompt_sections.append(
             "\n## Template placeholders to fill\n"
-            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"draft\": \"full narrative draft that matches the completed template\"\n}.\n"
+            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"draft\": \"full narrative draft that matches the completed template\",\n  \"questions\": [optional follow-up questions for any remaining gaps]\n}.\n"
             "Only the tokens listed below should be replaced. Keep all surrounding labels, bullets, tables, and formatting intact.\n"
             + "\n".join(f"- {token}" for token in placeholders)
         )
@@ -157,8 +157,8 @@ def build_prompt(
     prompt_sections.append(
         "\n## Response rules\n"
         "- Preserve the template's structure and formatting exactly; replace only the placeholder text while keeping all other content unchanged.\n"
-        "- If clarification is required, respond with concise follow-up questions instead of guessing.\n"
-        "- When information is sufficient, return the JSON structure above; if the template is fully answered, set the \"draft\" field to the completed text without wrapping it in code fences.\n"
+        "- Always provide your best-effort placeholders map and draft using the supplied information; include a `questions` array only for items you still need clarified instead of withholding the draft.\n"
+        "- If the template is fully answered, set the \"draft\" field to the completed text without wrapping it in code fences.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
     )
 
