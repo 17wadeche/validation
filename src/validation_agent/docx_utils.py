@@ -353,6 +353,11 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     generic_placeholder_pattern = _build_token_pattern({placeholder: "" for placeholder in placeholders})
     inserted = False
     map_replaced = False
+
+    # When a placeholder map is provided, prefer in-place replacement instead of
+    # inserting the full draft verbatim (which can duplicate content). Fall back
+    # to the full draft only if nothing was replaced.
+    use_full_draft = not placeholder_map
     lines = (structured_draft or draft).splitlines() or [structured_draft or draft]
 
     candidate_paragraph = None
@@ -388,7 +393,7 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             if replaced_here:
                 continue
 
-        if _matches_known_placeholder(paragraph.text or ""):
+        if use_full_draft and _matches_known_placeholder(paragraph.text or ""):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
@@ -411,12 +416,12 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         if inserted:
             continue
 
-        if any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
+        if use_full_draft and any(_looks_like_placeholder(getattr(run, "text", "")) for run in runs):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
 
-        if _looks_like_placeholder(paragraph.text):
+        if use_full_draft and _looks_like_placeholder(paragraph.text):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
@@ -426,7 +431,10 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
 
         for placeholder in placeholders:
             if placeholder in paragraph.text:
-                _replace_paragraph_with_lines(paragraph, lines)
+                if use_full_draft:
+                    _replace_paragraph_with_lines(paragraph, lines)
+                else:
+                    paragraph.text = paragraph.text.replace(placeholder, "")
                 inserted = True
                 break
 
@@ -434,13 +442,19 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         _replace_paragraph_with_lines(candidate_paragraph, lines)
         inserted = True
 
-    if not inserted and not map_replaced and best_scored_paragraph and best_score >= 3:
+    if use_full_draft and not inserted and not map_replaced and best_scored_paragraph and best_score >= 3:
         _replace_paragraph_with_lines(best_scored_paragraph, lines)
         inserted = True
 
     if not inserted and not map_replaced:
-        for line in lines:
-            doc.add_paragraph(line)
+        if use_full_draft:
+            for line in lines:
+                doc.add_paragraph(line)
+        elif structured_draft or draft:
+            # As a last resort when no placeholders were replaced, include the
+            # generated text once so the output is not empty.
+            for line in lines:
+                doc.add_paragraph(line)
 
     buffer = BytesIO()
     doc.save(buffer)
