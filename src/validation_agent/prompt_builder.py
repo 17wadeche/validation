@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Iterable, List
 
 from .document_loader import load_text_document
@@ -67,6 +68,14 @@ def format_examples(examples: Iterable[Example]) -> str:
     return "\n".join(lines).strip()
 
 
+def extract_placeholders(template: str) -> List[str]:
+    """Capture inline placeholder tokens from the template text."""
+
+    pattern = re.compile(r"(<[^>]+>|\[\[[^\]]+\]\]|\{[^}]+\}|_{3,})")
+    found = set(match.strip() for match in pattern.findall(template))
+    return sorted(found)
+
+
 def build_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
     prompt_sections = [
         "You are an AI assistant that drafts Medtronic validation documentation.",
@@ -76,6 +85,15 @@ def build_prompt(template: str, examples: Iterable[Example], code_context: str) 
     ]
 
     prompt_sections.append("\n## Template\n" + template.strip())
+
+    placeholders = extract_placeholders(template)
+    if placeholders:
+        prompt_sections.append(
+            "\n## Template placeholders to fill\n"
+            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"draft\": \"full narrative draft that matches the completed template\"\n}.\n"
+            "Only the tokens listed below should be replaced. Keep all surrounding labels, bullets, tables, and formatting intact.\n"
+            + "\n".join(f"- {token}" for token in placeholders)
+        )
 
     formatted_examples = format_examples(examples)
     if formatted_examples:
@@ -92,7 +110,7 @@ def build_prompt(template: str, examples: Iterable[Example], code_context: str) 
         "\n## Response rules\n"
         "- Preserve the template's structure and formatting exactly; replace only the placeholder text while keeping all other content unchanged.\n"
         "- If clarification is required, respond with concise follow-up questions instead of guessing.\n"
-        "- When information is sufficient, return only the completed validation draft (no prompt restatement, commentary, or code fences).\n"
+        "- When information is sufficient, return the JSON structure above; if the template is fully answered, set the \"draft\" field to the completed text without wrapping it in code fences.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
     )
 

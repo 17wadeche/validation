@@ -291,66 +291,62 @@ TEMPLATE = """
   <title>Validation Draft Builder</title>
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: #0b1220;
-      --card: #111a2f;
-      --muted: #8da2c0;
-      --accent: #3b82f6;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --muted: #475569;
+      --text: #0f172a;
+      --accent: #2563eb;
       --accent-2: #22d3ee;
-      --border: rgba(255,255,255,0.08);
-      --shadow: 0 10px 30px rgba(0,0,0,0.3);
+      --border: rgba(15, 23, 42, 0.08);
+      --shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(34, 211, 238, 0.12), transparent 35%),
-                  radial-gradient(circle at 80% 0%, rgba(59, 130, 246, 0.12), transparent 25%),
+      background: radial-gradient(circle at 12% 10%, rgba(34, 211, 238, 0.18), transparent 26%),
+                  radial-gradient(circle at 82% 0%, rgba(37, 99, 235, 0.14), transparent 23%),
                   var(--bg);
-      color: #eef2ff;
+      color: var(--text);
       min-height: 100vh;
     }
     a { color: var(--accent); }
     h1, h2, h3 { margin: 0; }
     .page { max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px; }
-    .header {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 16px; margin-bottom: 24px;
-    }
-    .badge { padding: 8px 12px; border-radius: 999px; background: rgba(59, 130, 246, 0.12); color: var(--accent); font-weight: 600; font-size: 14px; }
-    .subtitle { color: var(--muted); margin-top: 8px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
+    .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+    .badge { padding: 8px 12px; border-radius: 999px; background: linear-gradient(120deg, rgba(34, 211, 238, 0.15), rgba(37, 99, 235, 0.14)); color: var(--accent); font-weight: 600; font-size: 14px; }
+    .subtitle { color: var(--muted); margin-top: 10px; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 16px; }
     .card {
-      background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(255,255,255,0));
+      background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 16px;
+      border-radius: 18px;
       padding: 20px;
       box-shadow: var(--shadow);
-      backdrop-filter: blur(6px);
     }
     .card h3 { margin-bottom: 10px; }
     .card p { color: var(--muted); margin: 6px 0 12px; }
-    .input, textarea, select { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: #fff; font-size: 14px; }
-    .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(59,130,246,0.5); border-color: rgba(59,130,246,0.3); }
+    .input, textarea, select { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: #f8fafc; color: var(--text); font-size: 14px; }
+    .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(37,99,235,0.3); border-color: rgba(37,99,235,0.35); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
     textarea { min-height: 110px; resize: vertical; }
-    .checkbox { display: flex; align-items: center; gap: 8px; color: #dbeafe; }
-    .checkbox input { width: 16px; height: 16px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+    .checkbox { display: flex; align-items: center; gap: 8px; color: var(--text); }
+    .checkbox input { width: 16px; height: 16px; accent-color: var(--accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; align-items: center; }
     .btn {
       border: none; cursor: pointer; border-radius: 12px; padding: 12px 16px; font-weight: 700; font-size: 15px;
       transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 8px;
     }
-    .btn-primary { background: linear-gradient(135deg, var(--accent), #2563eb); color: #fff; box-shadow: 0 12px 30px rgba(37, 99, 235, 0.35); }
-    .btn-ghost { background: rgba(255,255,255,0.06); color: #e2e8f0; border: 1px solid var(--border); }
+    .btn-primary { background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; box-shadow: 0 12px 30px rgba(37, 99, 235, 0.25); }
+    .btn-ghost { background: #eef2ff; color: #1e293b; border: 1px solid rgba(37, 99, 235, 0.2); }
     .btn:hover { transform: translateY(-1px); }
-    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
-    .output { white-space: pre-wrap; background: rgba(15,23,42,0.8); border: 1px solid var(--border); padding: 16px; border-radius: 14px; min-height: 140px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: #eef2ff; border: 1px solid rgba(37,99,235,0.18); color: var(--muted); font-size: 12px; }
+    .output { white-space: pre-wrap; background: #f8fafc; border: 1px solid var(--border); padding: 16px; border-radius: 14px; min-height: 140px; color: var(--text); }
     .chat { margin-top: 6px; }
-    .error { border: 1px solid #ef4444; color: #fecdd3; background: rgba(239,68,68,0.08); padding: 12px 14px; border-radius: 12px; }
+    .error { border: 1px solid #ef4444; color: #991b1b; background: #fee2e2; padding: 12px 14px; border-radius: 12px; }
     .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
-    .preview { margin-top: 14px; background: #f8fafc; color: #0f172a; border-radius: 14px; padding: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); border: 1px solid rgba(15,23,42,0.1); }
+    .preview { margin-top: 14px; background: #f8fafc; color: #0f172a; border-radius: 14px; padding: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); border: 1px solid rgba(15,23,42,0.08); }
     .preview h4 { margin: 0 0 8px 0; color: #0f172a; }
-    .preview .doc-surface { background: #fff; border-radius: 10px; padding: 14px; border: 1px solid rgba(15,23,42,0.08); box-shadow: 0 6px 18px rgba(15,23,42,0.08); max-height: 520px; overflow: auto; }
+    .preview .doc-surface { background: #fff; border-radius: 12px; padding: 14px; border: 1px solid rgba(15,23,42,0.08); box-shadow: 0 12px 26px rgba(15,23,42,0.08); max-height: 520px; overflow: auto; }
     .preview .doc-surface table { width: 100%; border-collapse: collapse; }
     .preview .doc-surface table, .preview .doc-surface td, .preview .doc-surface th { border: 1px solid #cbd5e1; }
     .preview .doc-surface td, .preview .doc-surface th { padding: 6px; }
@@ -378,6 +374,7 @@ TEMPLATE = """
           <div style=\"margin-top: 12px;\">
             <input class=\"input\" type=\"file\" name=\"template_file\">
           </div>
+          <p style=\"margin: 10px 0 0;\">Blue text and inline tokens like &lt;Tool Name&gt; or ___ are detected and replaced in place using the model's structured response.</p>
           {% if saved_inputs.template %}
             <div style=\"margin-top: 12px;\">
               <label class=\"checkbox\">

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from io import BytesIO
 from typing import Iterable, Optional
@@ -276,23 +277,61 @@ def _replace_run_with_draft(run, draft: str):
         run.add_text(part)
 
 
-def _replace_tokens_in_run(run, draft: str) -> bool:
+def _replace_tokens_in_run(run, token_map: dict[str, str], token_pattern) -> bool:
     """Replace inline placeholder tokens inside a run while preserving styling."""
 
     text = getattr(run, "text", "") or ""
-    if not text:
+    if not text or not token_pattern:
         return False
 
-    pattern = re.compile(r"(<[^>]+>|\[\[[^\]]+\]\]|\{[^}]+\}|_{3,})")
-    if not pattern.search(text):
-        return False
+    def _render(match):
+        token = match.group(0)
+        replacement = token_map.get(token, token)
+        return replacement
 
-    replaced = pattern.sub(draft, text)
+    replaced = token_pattern.sub(_render, text)
     if replaced != text:
         run.text = replaced
         return True
 
     return False
+
+
+def _build_token_pattern(token_map: dict[str, str]):
+    if not token_map:
+        return None
+
+    safe_tokens = [re.escape(token) for token in sorted(token_map.keys(), key=len, reverse=True)]
+    if not safe_tokens:
+        return None
+
+    return re.compile("(" + "|".join(safe_tokens) + ")")
+
+
+def _parse_structured_draft(draft: str) -> tuple[str, dict[str, str]]:
+    """Attempt to parse a structured draft mapping placeholders to content."""
+
+    if not draft:
+        return "", {}
+
+    try:
+        data = json.loads(draft)
+    except Exception:
+        return draft.strip(), {}
+
+    if isinstance(data, dict):
+        placeholders: dict[str, str] = {}
+        if isinstance(data.get("placeholders"), dict):
+            placeholders = {str(k): str(v) for k, v in data["placeholders"].items()}
+        elif all(isinstance(v, (str, int, float)) for v in data.values()):
+            placeholders = {str(k): str(v) for k, v in data.items()}
+
+        full_text = data.get("draft") or data.get("full_text") or data.get("text")
+        draft_text = str(full_text).strip() if isinstance(full_text, (str, int, float)) else ""
+
+        return draft_text, placeholders
+
+    return draft.strip(), {}
 
 
 def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> bytes:
@@ -308,9 +347,13 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     else:
         doc = Document()
 
-    inserted = False
+    structured_draft, placeholder_map = _parse_structured_draft(draft)
     placeholders = ["[[GENERATED_DRAFT]]", "<GENERATED_DRAFT>", "{GENERATED_DRAFT}"]
-    lines = draft.splitlines() or [draft]
+    token_pattern = _build_token_pattern(placeholder_map)
+    generic_placeholder_pattern = _build_token_pattern({placeholder: "" for placeholder in placeholders})
+    inserted = False
+    map_replaced = False
+    lines = (structured_draft or draft).splitlines() or [structured_draft or draft]
 
     candidate_paragraph = None
     best_scored_paragraph = None
@@ -323,18 +366,40 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             best_score = score
             best_scored_paragraph = paragraph
 
+        para_text = (paragraph.text or "").strip()
+        if placeholder_map and para_text in placeholder_map:
+            replacement_lines = str(placeholder_map[para_text]).splitlines() or [""]
+            _replace_paragraph_with_lines(paragraph, replacement_lines)
+            map_replaced = True
+            continue
+
+        if placeholder_map and token_pattern:
+            replaced_here = False
+            for run in runs:
+                if _replace_tokens_in_run(run, placeholder_map, token_pattern):
+                    replaced_here = True
+            if not replaced_here:
+                combined = paragraph.text or ""
+                if token_pattern.search(combined):
+                    new_text = token_pattern.sub(lambda match: placeholder_map.get(match.group(0), match.group(0)), combined)
+                    _replace_paragraph_with_lines(paragraph, new_text.splitlines() or [new_text])
+                    replaced_here = True
+            map_replaced = map_replaced or replaced_here
+            if replaced_here:
+                continue
+
         if _matches_known_placeholder(paragraph.text or ""):
             _replace_paragraph_with_lines(paragraph, lines)
             inserted = True
             continue
 
         for idx, run in enumerate(runs):
-            if _replace_tokens_in_run(run, draft):
+            if _replace_tokens_in_run(run, {placeholder: "\n".join(lines) for placeholder in placeholders}, generic_placeholder_pattern):
                 inserted = True
                 break
 
             if _is_placeholder_run(run):
-                _replace_run_with_draft(run, draft)
+                _replace_run_with_draft(run, structured_draft or draft)
                 for follower in runs[idx + 1 :]:
                     if _is_placeholder_run(follower):
                         follower.text = ""
@@ -365,15 +430,15 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
                 inserted = True
                 break
 
-    if not inserted and candidate_paragraph:
+    if not inserted and not map_replaced and candidate_paragraph:
         _replace_paragraph_with_lines(candidate_paragraph, lines)
         inserted = True
 
-    if not inserted and best_scored_paragraph and best_score >= 3:
+    if not inserted and not map_replaced and best_scored_paragraph and best_score >= 3:
         _replace_paragraph_with_lines(best_scored_paragraph, lines)
         inserted = True
 
-    if not inserted:
+    if not inserted and not map_replaced:
         for line in lines:
             doc.add_paragraph(line)
 
