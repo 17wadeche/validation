@@ -49,6 +49,9 @@ GUIDANCE_SNIPPETS = [
     "blue text is included for reference and needs to be converted to black text or removed prior to routing the document.",
     "important:  the header area in this document must be left blank.",
     "this form is intended for tools that are assessed to have low or moderate risk level as assessed per quality assurance",
+    "some sections are all blue, these sections are recommended, but not required.",
+    "the header area in this document must be left blank.",
+    "this form is intended for tools that are assessed to have low or moderate risk level",
 ]
 
 
@@ -505,14 +508,21 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             map_replaced = True
             continue
 
+        if replaced_purpose and (
+            "assurance (standard deliverables) sample purpose statement" in normalized_text
+            or "validation (enhanced deliverables) sample purpose statement" in normalized_text
+        ):
+            paragraph.text = ""
+            continue
+
         para_text = (paragraph.text or "").strip()
-        if placeholder_map and para_text in placeholder_map:
+        if placeholder_map and para_text in placeholder_map and (score or _looks_like_placeholder(para_text)):
             replacement_lines = str(placeholder_map[para_text]).splitlines() or [""]
             _replace_paragraph_with_lines(paragraph, replacement_lines)
             map_replaced = True
             continue
 
-        if placeholder_map and token_pattern:
+        if placeholder_map and token_pattern and (score or _looks_like_placeholder(paragraph.text)):
             replaced_here = False
             for run in runs:
                 if _replace_tokens_in_run(run, placeholder_map, token_pattern):
