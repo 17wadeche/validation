@@ -476,7 +476,12 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         ) from exc
 
     if template_bytes:
-        doc = Document(BytesIO(template_bytes))
+        try:
+            doc = Document(BytesIO(template_bytes))
+        except Exception as exc:
+            raise DocxExportError(
+                "Uploaded template is not a valid .docx file. Upload a Word template or leave the template blank to export a generated draft."
+            ) from exc
     else:
         doc = Document()
 
