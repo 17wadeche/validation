@@ -533,10 +533,6 @@ TEMPLATE = """
       </div>
     </form>
 
-    {% if plan_text %}
-      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Planning output</span><span>Lists placeholders, open questions, and where to place answers</span></div>\n        <div class=\"output\" style=\"margin-top: 10px;\">{{ plan_text }}</div>\n      </div>
-    {% endif %}
-
     {% if plan_questions or draft_questions %}
       <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Share these details or reply in chat so the agent can finish</span></div>\n        {% if plan_questions %}\n          <p style=\"margin: 8px 0; color: #475569;\">From planning:</p>\n          <ul style=\"color: #0f172a; padding-left: 20px; margin-top: 4px;\">\n            {% for q in plan_questions %}\n              <li style=\"margin-bottom: 6px;\">{{ q }}</li>\n            {% endfor %}\n          </ul>\n        {% endif %}\n        {% if draft_questions %}\n          <p style=\"margin: 8px 0; color: #475569;\">From generated answers:</p>\n          <ul style=\"color: #0f172a; padding-left: 20px; margin-top: 4px;\">\n            {% for q in draft_questions %}\n              <li style=\"margin-bottom: 6px;\">{{ q }}</li>\n            {% endfor %}\n          </ul>\n        {% endif %}\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below to respond; the agent will keep context from your uploads.</p>\n      </div>
     {% endif %}
