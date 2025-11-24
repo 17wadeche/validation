@@ -46,6 +46,7 @@ KNOWN_PLACEHOLDER_SNIPPETS = [
 
 GUIDANCE_SNIPPETS = [
     "blue text is included for reference and needs to be converted to black text or removed prior to routing the document. some sections are all blue, these sections are recommended, but not required. important: the header area in this document must be left blank. mrcs d2 will automatically insert the header. this form is intended for tools that are assessed to have low or moderate risk level as assessed per quality assurance for quality data science and analytics tools (d00483500) procedure. for high risk level tools, follow the mscm procedure (document 117376-sop). for projects that are determined to be no risk per d00483500, this form is optional.",
+    "blue text is included for reference and needs to be converted to black text or removed prior to routing the document.",
 ]
 
 
@@ -85,6 +86,9 @@ def _is_guidance_text(text: str) -> bool:
     normalized = _normalize(text)
     if not normalized:
         return False
+
+    if normalized.startswith("blue text is included for reference"):
+        return True
 
     return any(snippet in normalized for snippet in GUIDANCE_SNIPPETS)
 
@@ -307,6 +311,60 @@ def _extract_purpose_text(draft: str) -> Optional[str]:
     return paragraphs[0] if paragraphs else None
 
 
+def _extract_scope_values(draft: str) -> dict[str, str]:
+    """Extract common scope fields from the generated draft when missing.
+
+    This acts as a safety net when the model does not emit explicit placeholder
+    mappings for tokens like ``<Tool Type>`` but the narrative draft includes
+    those values in the scope section. We reuse these to populate table cells
+    instead of leaving them blank.
+    """
+
+    if not draft:
+        return {}
+
+    patterns: list[tuple[str, str]] = [
+        ("<Tool Name>", r"Tool Name:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<tool name>", r"Tool Name:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<#.#.#>", r"Tool Release:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<Tool Type>", r"Tool Type:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("Tool Type", r"Tool Type:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<Tool Location>", r"Tool Location:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("Tool Location", r"Tool Location:\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<Tool Platform>", r"Tool Platform\s*\n\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("Tool Platform", r"Tool Platform\s*\n\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<Object Type>", r"Object Type\s*\n\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("Object Type", r"Object Type\s*\n\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("<Data Source(s)>", r"Data Source\(s\):\s*([\s\S]*?)(?:\n\s*\n|$)"),
+        ("Data Source(s)", r"Data Source\(s\):\s*([\s\S]*?)(?:\n\s*\n|$)"),
+    ]
+
+    extracted: dict[str, str] = {}
+    for token, pattern in patterns:
+        match = re.search(pattern, draft, flags=re.IGNORECASE)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if not value:
+            continue
+        cleaned = re.sub(r"\s+", " ", value)
+        extracted.setdefault(token, cleaned)
+
+    # When we find either lowercase/uppercase or bracketed/unbracketed
+    # variants, mirror them so the placeholder regex can catch whatever is
+    # present in the template.
+    if "<Tool Name>" in extracted:
+        extracted.setdefault("<tool name>", extracted["<Tool Name>"])
+    if "<tool name>" in extracted:
+        extracted.setdefault("<Tool Name>", extracted["<tool name>"])
+    if "Tool Type" in extracted:
+        extracted.setdefault("<Tool Type>", extracted["Tool Type"])
+    if "Tool Location" in extracted:
+        extracted.setdefault("<Tool Location>", extracted["Tool Location"])
+
+    return extracted
+
+
 def _replace_tokens_in_run(run, token_map: dict[str, str], token_pattern) -> bool:
     """Replace inline placeholder tokens inside a run while preserving styling."""
 
@@ -378,12 +436,16 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         doc = Document()
 
     structured_draft, placeholder_map = _parse_structured_draft(draft)
+    extracted_scope = _extract_scope_values(structured_draft or draft)
+    for key, value in extracted_scope.items():
+        placeholder_map.setdefault(key, value)
     placeholders = ["[[GENERATED_DRAFT]]", "<GENERATED_DRAFT>", "{GENERATED_DRAFT}"]
     token_pattern = _build_token_pattern(placeholder_map)
     generic_placeholder_pattern = _build_token_pattern({placeholder: "" for placeholder in placeholders})
     inserted = False
     map_replaced = False
     purpose_text = _extract_purpose_text(structured_draft or draft)
+    replaced_purpose = False
 
     # When a placeholder map is provided, prefer in-place replacement instead of
     # inserting the full draft verbatim (which can duplicate content). Fall back
@@ -412,7 +474,11 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             or "assurance (standard deliverables) sample purpose statement" in normalized_text
             or "validation (enhanced deliverables) sample purpose statement" in normalized_text
         ):
-            _replace_paragraph_with_lines(paragraph, purpose_text.splitlines() or [purpose_text])
+            if not replaced_purpose:
+                _replace_paragraph_with_lines(paragraph, purpose_text.splitlines() or [purpose_text])
+                replaced_purpose = True
+            else:
+                paragraph.text = ""
             map_replaced = True
             continue
 
