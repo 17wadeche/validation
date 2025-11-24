@@ -33,6 +33,21 @@ def _iter_paragraphs(document) -> Iterable:
                 yield from _iter_paragraphs(ftr)
 
 
+KNOWN_PLACEHOLDER_SNIPPETS = [
+    "assurance (standard deliverables) sample purpose statement",
+    "validation (enhanced deliverables) sample purpose statement",
+    "the purpose of this document is to record the quality assurance activities",
+]
+
+
+def _matches_known_placeholder(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+
+    return any(snippet in lowered for snippet in KNOWN_PLACEHOLDER_SNIPPETS)
+
+
 def _looks_like_placeholder(text: str) -> bool:
     """Heuristically detect placeholder text that should be replaced.
 
@@ -47,7 +62,10 @@ def _looks_like_placeholder(text: str) -> bool:
     if any(stripped.startswith(prefix) for prefix in ("<", "[[", "{")):
         return True
 
-    return any(marker in stripped for marker in ("<", ">", "[[", "]]", "{", "}"))
+    if any(marker in stripped for marker in ("<", ">", "[[", "]]", "{", "}")):
+        return True
+
+    return _matches_known_placeholder(stripped)
 
 
 def _color_matches_blue(color) -> bool:
@@ -164,6 +182,9 @@ def _is_placeholder_run(run) -> bool:
     if any(token in stripped for token in ("<", ">", "[[", "]]", "{", "}", "___")):
         return True
 
+    if _matches_known_placeholder(stripped):
+        return True
+
     if stripped.isupper() and len(stripped) > 6:
         return True
 
@@ -201,6 +222,9 @@ def _paragraph_placeholder_score(paragraph) -> int:
 
     if _looks_like_placeholder(text):
         score += 2
+
+    if _matches_known_placeholder(text):
+        score += 3
 
     return score
 
@@ -275,6 +299,11 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         if score > best_score:
             best_score = score
             best_scored_paragraph = paragraph
+
+        if _matches_known_placeholder(paragraph.text or ""):
+            _replace_paragraph_with_lines(paragraph, lines)
+            inserted = True
+            continue
 
         for idx, run in enumerate(runs):
             if _is_placeholder_run(run):
