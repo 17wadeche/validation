@@ -403,7 +403,10 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
                 inserted = True
                 break
 
-            if _is_placeholder_run(run):
+            # Avoid inserting the full draft when a placeholder map exists so we
+            # only replace the targeted tokens once instead of duplicating the
+            # generated content.
+            if use_full_draft and _is_placeholder_run(run):
                 _replace_run_with_draft(run, structured_draft or draft)
                 for follower in runs[idx + 1 :]:
                     if _is_placeholder_run(follower):
