@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 from flask import Flask, render_template_string, request, send_file
 
-from src.validation_agent.prompt_builder import Example, build_prompt
+from src.validation_agent.prompt_builder import Example, build_planning_prompt, build_prompt
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
@@ -94,7 +94,8 @@ def _build_prompt_from_request(
     saved_inputs: SavedInputs,
     keep_saved_template: bool,
     kept_saved_examples: List[StoredFile],
-) -> Tuple[str, Optional[bytes], Optional[StoredFile], List[StoredFile]]:
+    plan_context: str | None,
+) -> Tuple[str, Optional[bytes], Optional[StoredFile], List[StoredFile], str, List[Example], str]:
     template_text, template_bytes, _, template_name = _read_upload(files.get("template_file"))
     stored_template: Optional[StoredFile] = None
 
@@ -106,7 +107,16 @@ def _build_prompt_from_request(
 
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
     code_context = _gather_code_context(files.getlist("code_files"), form.get("code_context", ""))
-    return build_prompt(template_text or "", examples, code_context), template_bytes, stored_template, stored_examples
+    prompt = build_prompt(template_text or "", examples, code_context, plan_context=plan_context)
+    return (
+        prompt,
+        template_bytes,
+        stored_template,
+        stored_examples,
+        template_text or "",
+        examples,
+        code_context,
+    )
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -115,6 +125,7 @@ def index():
     draft: Optional[str] = None
     error: Optional[str] = None
     history: list[dict] = []
+    plan_text: str = ""
     template_bytes: Optional[bytes] = None
     preview_html: Optional[str] = None
     docx_b64: Optional[str] = None
@@ -144,8 +155,23 @@ def index():
             if request.form.get(f"keep_example_{idx}") == "on":
                 kept_saved_examples.append(saved_example)
 
-        prompt, template_bytes, stored_template, stored_examples = _build_prompt_from_request(
-            request.form, request.files, stored_inputs, keep_saved_template, kept_saved_examples
+        plan_text = request.form.get("plan_text", "")
+
+        (
+            prompt,
+            template_bytes,
+            stored_template,
+            stored_examples,
+            template_text,
+            examples,
+            code_context,
+        ) = _build_prompt_from_request(
+            request.form,
+            request.files,
+            saved_inputs,
+            keep_saved_template,
+            kept_saved_examples,
+            plan_text,
         )
         if not template_bytes and keep_saved_template and stored_inputs.template:
             try:
@@ -184,7 +210,18 @@ def index():
         except json.JSONDecodeError:
             history = []
 
-        if action == "chat" and client:
+        if action == "plan":
+            if not client:
+                error = "Provide MedtronicGPT credentials to plan the document."
+            else:
+                planning_prompt = build_planning_prompt(
+                    template_text or "", examples, code_context
+                )
+                try:
+                    plan_text = client.generate_completion(planning_prompt, model=model)
+                except MedtronicGPTError as exc:
+                    error = str(exc)
+        elif action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
             if user_message:
                 history.append({"role": "user", "content": user_message})
@@ -198,6 +235,14 @@ def index():
                 full_history = [seed]
                 if prompt:
                     full_history.append({"role": "system", "content": f"Reference prompt context to stay on-topic:\n{prompt}"})
+                if plan_text.strip():
+                    full_history.append(
+                        {
+                            "role": "system",
+                            "content": "Use this planning JSON to map placeholders before proposing edits:\n"
+                            + plan_text.strip(),
+                        }
+                    )
                 full_history += history
                 try:
                     reply = client.generate_completion(model=model, messages=full_history)
@@ -260,8 +305,8 @@ def index():
         if request.form.get("remember_inputs") == "on":
             final_template = stored_template if stored_template else (stored_inputs.template if keep_saved_template else None)
             final_examples = stored_examples
-            persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
-            save_inputs(persisted_inputs)
+        persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
+        save_inputs(persisted_inputs)
 
     return render_template_string(
         TEMPLATE,
@@ -272,6 +317,7 @@ def index():
         history=history,
         stored=stored,
         saved_inputs=persisted_inputs,
+        plan_text=plan_text,
         preview_html=preview_html,
         docx_b64=docx_b64,
         template_b64=base64.b64encode(template_bytes).decode("utf-8")
@@ -367,7 +413,7 @@ TEMPLATE = """
     {% endif %}
 
     <form method=\"post\" enctype=\"multipart/form-data\">
-      <input type=\"hidden\" name=\"action\" value=\"build\">
+      <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <div class=\"grid\">
         <div class=\"card\">
           <div class=\"tagline\"><span class=\"pill\">Template</span><span>Upload the source file to preserve layout</span></div>
@@ -466,11 +512,16 @@ TEMPLATE = """
         </div>
       </div>
 
-      <div class=\"actions\" style=\"margin-top: 18px;\">
-        <button class=\"btn btn-primary\" type=\"submit\">Generate draft</button>
-        <div class=\"pill\">Prompts stay hidden; only the completed output is shown.</div>
+      <div class=\"actions\" style=\"margin-top: 18px; gap: 10px;\">
+        <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"plan\">Plan document needs</button>
+        <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate draft</button>
+        <div class=\"pill\">Plan first, then draft once questions are answered.</div>
       </div>
     </form>
+
+    {% if plan_text %}
+      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Planning output</span><span>Lists placeholders, open questions, and where to place answers</span></div>\n        <div class=\"output\" style=\"margin-top: 10px;\">{{ plan_text }}</div>\n      </div>
+    {% endif %}
 
     {% if draft %}
       <div class=\"card\" style=\"margin-top: 20px;\">
@@ -513,6 +564,7 @@ TEMPLATE = """
         <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
         <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
         <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
+        <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
         <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
 
         <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"min-height: 80px;\"></textarea>

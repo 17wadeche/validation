@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from .document_loader import load_text_document
-from .prompt_builder import Example, build_prompt, load_examples
+from .prompt_builder import Example, build_planning_prompt, build_prompt, load_examples
 
 LLMCallable = Callable[[str], str]
 
@@ -43,19 +43,34 @@ class ValidationAgent:
         template_path: Path,
         examples_path: Path,
         code_paths: Iterable[Path],
+        plan_context: str | None = None,
     ) -> str:
         template = load_text_document(template_path)
         examples = load_examples(examples_path)
         code_context = load_code_context(code_paths)
-        return build_prompt(template, examples, code_context)
+        return build_prompt(template, examples, code_context, plan_context=plan_context)
+
+    def plan_document(
+        self, template_path: Path, examples_path: Path, code_paths: Iterable[Path]
+    ) -> str:
+        template = load_text_document(template_path)
+        examples = load_examples(examples_path)
+        code_context = load_code_context(code_paths)
+        planning_prompt = build_planning_prompt(template, examples, code_context)
+        if self.llm_callable:
+            return self.llm_callable(planning_prompt)
+        return planning_prompt
 
     def generate_draft(
         self,
         template_path: Path,
         examples_path: Path,
         code_paths: Iterable[Path],
+        plan_context: str | None = None,
     ) -> str:
-        prompt = self.create_prompt(template_path, examples_path, code_paths)
+        prompt = self.create_prompt(
+            template_path, examples_path, code_paths, plan_context=plan_context
+        )
         if self.llm_callable:
             return self.llm_callable(prompt)
         return prompt

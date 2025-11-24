@@ -76,7 +76,48 @@ def extract_placeholders(template: str) -> List[str]:
     return sorted(found)
 
 
-def build_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
+def build_planning_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
+    """Build a planning prompt that inventories placeholders and open questions."""
+
+    prompt_sections = [
+        "You are a Medtronic validation planning assistant.",
+        "Inspect the template and summarize what must be filled before drafting.",
+        "Return JSON only with three keys: {\n  \"needs\": [ {\"token\": str, \"description\": str, \"where\": str} ],\n  \"clarifying_questions\": [str],\n  \"drafting_steps\": [ {\"section\": str, \"tokens\": [str], \"notes\": str} ]\n}.",
+        "Do not generate the draft itself—focus on the fill plan and concise questions to unblock drafting.",
+    ]
+
+    prompt_sections.append("\n## Template\n" + template.strip())
+
+    placeholders = extract_placeholders(template)
+    if placeholders:
+        prompt_sections.append(
+            "\n## Detected placeholders\n"
+            + "\n".join(f"- {token}" for token in placeholders)
+        )
+
+    formatted_examples = format_examples(examples)
+    if formatted_examples:
+        prompt_sections.append("\n## Reference examples\n" + formatted_examples)
+
+    prompt_sections.append(
+        "\n## Program code context\n"
+        "Use the following code snapshot for grounding; flag any missing pieces that prevent filling the template.\n"
+        + code_context.strip()
+    )
+
+    prompt_sections.append(
+        "\n## Response rules\n"
+        "- Output valid JSON only (no code fences).\n"
+        "- Keep questions brief and tied to specific tokens or sections.\n"
+        "- Suggest drafting steps that map tokens to template sections so a follow-on agent can place them precisely.\n"
+    )
+
+    return "\n\n".join(prompt_sections).strip() + "\n"
+
+
+def build_prompt(
+    template: str, examples: Iterable[Example], code_context: str, plan_context: str | None = None
+) -> str:
     prompt_sections = [
         "You are an AI assistant that drafts Medtronic validation documentation.",
         "Follow the provided template exactly, replacing placeholders (highlighted in blue in the template) with project-specific content while preserving every heading, bullet, table, and piece of surrounding text.",
@@ -98,6 +139,13 @@ def build_prompt(template: str, examples: Iterable[Example], code_context: str) 
     formatted_examples = format_examples(examples)
     if formatted_examples:
         prompt_sections.append("\n## Reference examples\n" + formatted_examples)
+
+    if plan_context and plan_context.strip():
+        prompt_sections.append(
+            "\n## Drafting plan\n"
+            "Use this plan when deciding where to place generated content. If details are missing, ask clarifying questions before replacing placeholders.\n"
+            + plan_context.strip()
+        )
 
     prompt_sections.append(
         "\n## Program code context\n"
