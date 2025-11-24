@@ -168,7 +168,7 @@ def index():
         ) = _build_prompt_from_request(
             request.form,
             request.files,
-            saved_inputs,
+            stored_inputs,
             keep_saved_template,
             kept_saved_examples,
             plan_text,
