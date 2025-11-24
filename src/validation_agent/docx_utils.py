@@ -44,6 +44,10 @@ KNOWN_PLACEHOLDER_SNIPPETS = [
     "the purpose of this document is to record the quality assurance activities",
 ]
 
+GUIDANCE_SNIPPETS = [
+    "blue text is included for reference and needs to be converted to black text or removed prior to routing the document. some sections are all blue, these sections are recommended, but not required. important: the header area in this document must be left blank. mrcs d2 will automatically insert the header. this form is intended for tools that are assessed to have low or moderate risk level as assessed per quality assurance for quality data science and analytics tools (d00483500) procedure. for high risk level tools, follow the mscm procedure (document 117376-sop). for projects that are determined to be no risk per d00483500, this form is optional.",
+]
+
 
 def _matches_known_placeholder(text: str) -> bool:
     lowered = text.strip().lower()
@@ -51,6 +55,10 @@ def _matches_known_placeholder(text: str) -> bool:
         return False
 
     return any(snippet in lowered for snippet in KNOWN_PLACEHOLDER_SNIPPETS)
+
+
+def _normalize(text: str) -> str:
+    return " ".join((text or "").strip().lower().split())
 
 
 def _looks_like_placeholder(text: str) -> bool:
@@ -71,6 +79,14 @@ def _looks_like_placeholder(text: str) -> bool:
         return True
 
     return _matches_known_placeholder(stripped)
+
+
+def _is_guidance_text(text: str) -> bool:
+    normalized = _normalize(text)
+    if not normalized:
+        return False
+
+    return any(snippet in normalized for snippet in GUIDANCE_SNIPPETS)
 
 
 def _color_matches_blue(color) -> bool:
@@ -277,6 +293,20 @@ def _replace_run_with_draft(run, draft: str):
         run.add_text(part)
 
 
+def _extract_purpose_text(draft: str) -> Optional[str]:
+    """Pull a purpose paragraph from the generated draft to replace samples."""
+
+    if not draft:
+        return None
+
+    paragraphs = [para.strip() for para in draft.split("\n\n") if para and para.strip()]
+    for para in paragraphs:
+        if "purpose of this document is" in _normalize(para):
+            return para
+
+    return paragraphs[0] if paragraphs else None
+
+
 def _replace_tokens_in_run(run, token_map: dict[str, str], token_pattern) -> bool:
     """Replace inline placeholder tokens inside a run while preserving styling."""
 
@@ -353,6 +383,7 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     generic_placeholder_pattern = _build_token_pattern({placeholder: "" for placeholder in placeholders})
     inserted = False
     map_replaced = False
+    purpose_text = _extract_purpose_text(structured_draft or draft)
 
     # When a placeholder map is provided, prefer in-place replacement instead of
     # inserting the full draft verbatim (which can duplicate content). Fall back
@@ -370,6 +401,20 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
         if score > best_score:
             best_score = score
             best_scored_paragraph = paragraph
+
+        normalized_text = _normalize(paragraph.text)
+        if _is_guidance_text(normalized_text):
+            paragraph.text = ""
+            continue
+
+        if purpose_text and (
+            _matches_known_placeholder(paragraph.text or "")
+            or "assurance (standard deliverables) sample purpose statement" in normalized_text
+            or "validation (enhanced deliverables) sample purpose statement" in normalized_text
+        ):
+            _replace_paragraph_with_lines(paragraph, purpose_text.splitlines() or [purpose_text])
+            map_replaced = True
+            continue
 
         para_text = (paragraph.text or "").strip()
         if placeholder_map and para_text in placeholder_map:
