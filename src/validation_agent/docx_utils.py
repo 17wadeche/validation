@@ -47,6 +47,8 @@ KNOWN_PLACEHOLDER_SNIPPETS = [
 GUIDANCE_SNIPPETS = [
     "blue text is included for reference and needs to be converted to black text or removed prior to routing the document. some sections are all blue, these sections are recommended, but not required. important: the header area in this document must be left blank. mrcs d2 will automatically insert the header. this form is intended for tools that are assessed to have low or moderate risk level as assessed per quality assurance for quality data science and analytics tools (d00483500) procedure. for high risk level tools, follow the mscm procedure (document 117376-sop). for projects that are determined to be no risk per d00483500, this form is optional.",
     "blue text is included for reference and needs to be converted to black text or removed prior to routing the document.",
+    "important:  the header area in this document must be left blank.",
+    "this form is intended for tools that are assessed to have low or moderate risk level as assessed per quality assurance",
 ]
 
 
@@ -357,12 +359,32 @@ def _extract_scope_values(draft: str) -> dict[str, str]:
         extracted.setdefault("<tool name>", extracted["<Tool Name>"])
     if "<tool name>" in extracted:
         extracted.setdefault("<Tool Name>", extracted["<tool name>"])
-    if "Tool Type" in extracted:
-        extracted.setdefault("<Tool Type>", extracted["Tool Type"])
-    if "Tool Location" in extracted:
-        extracted.setdefault("<Tool Location>", extracted["Tool Location"])
 
     return extracted
+
+
+def _filter_placeholder_map(raw_map: dict[str, str]) -> dict[str, str]:
+    """Drop label-only keys so we don't overwrite table headers.
+
+    Some templates contain labels such as ``Tool Type`` in the first column and
+    a placeholder (e.g., ``<Tool Type>``) in the second. When we harvest scope
+    values from the generated draft we avoid inserting those label-only keys so
+    replacements stay in the intended placeholder cells.
+    """
+
+    filtered: dict[str, str] = {}
+    for key, value in raw_map.items():
+        if not key:
+            continue
+
+        if any(marker in key for marker in ("<", ">", "[", "]", "{", "}", "___")):
+            filtered[key] = value
+            continue
+
+        if _looks_like_placeholder(key):
+            filtered[key] = value
+
+    return filtered
 
 
 def _replace_tokens_in_run(run, token_map: dict[str, str], token_pattern) -> bool:
@@ -439,6 +461,7 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
     extracted_scope = _extract_scope_values(structured_draft or draft)
     for key, value in extracted_scope.items():
         placeholder_map.setdefault(key, value)
+    placeholder_map = _filter_placeholder_map(placeholder_map)
     placeholders = ["[[GENERATED_DRAFT]]", "<GENERATED_DRAFT>", "{GENERATED_DRAFT}"]
     token_pattern = _build_token_pattern(placeholder_map)
     generic_placeholder_pattern = _build_token_pattern({placeholder: "" for placeholder in placeholders})
