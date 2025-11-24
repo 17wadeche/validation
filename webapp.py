@@ -53,6 +53,23 @@ def _read_saved_file(saved_file: StoredFile) -> Tuple[Optional[str], Optional[by
     return text, raw_bytes, suffix, saved_file.name
 
 
+def _extract_questions_from_json(payload: str) -> List[str]:
+    if not payload:
+        return []
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return []
+
+    questions: List[str] = []
+    if isinstance(data, dict):
+        for key in ("questions", "clarifying_questions"):
+            value = data.get(key)
+            if isinstance(value, list):
+                questions.extend(str(item).strip() for item in value if str(item).strip())
+    return questions
+
+
 def _gather_examples(uploaded_files, saved_examples: List[StoredFile]) -> Tuple[List[Example], List[StoredFile]]:
     examples: List[Example] = []
     stored_examples: List[StoredFile] = []
@@ -126,6 +143,8 @@ def index():
     error: Optional[str] = None
     history: list[dict] = []
     plan_text: str = ""
+    plan_questions: List[str] = []
+    draft_questions: List[str] = []
     template_bytes: Optional[bytes] = None
     docx_b64: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
@@ -155,6 +174,7 @@ def index():
                 kept_saved_examples.append(saved_example)
 
         plan_text = request.form.get("plan_text", "")
+        plan_questions = _extract_questions_from_json(plan_text)
 
         (
             prompt,
@@ -286,6 +306,7 @@ def index():
                 )
                 try:
                     plan_text = client.generate_completion(planning_prompt, model=model)
+                    plan_questions = _extract_questions_from_json(plan_text)
                 except MedtronicGPTError as exc:
                     error = str(exc)
 
@@ -293,6 +314,7 @@ def index():
                 prompt = build_prompt(template_text or "", examples, code_context, plan_context=plan_text)
                 try:
                     draft = client.generate_completion(prompt, model=model)
+                    draft_questions = _extract_questions_from_json(draft)
                     docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
                     docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
                 except MedtronicGPTError as exc:
@@ -316,6 +338,8 @@ def index():
         stored=stored,
         saved_inputs=persisted_inputs,
         plan_text=plan_text,
+        plan_questions=plan_questions,
+        draft_questions=draft_questions,
         docx_b64=docx_b64,
         template_b64=base64.b64encode(template_bytes).decode("utf-8")
         if template_bytes
@@ -511,6 +535,10 @@ TEMPLATE = """
 
     {% if plan_text %}
       <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Planning output</span><span>Lists placeholders, open questions, and where to place answers</span></div>\n        <div class=\"output\" style=\"margin-top: 10px;\">{{ plan_text }}</div>\n      </div>
+    {% endif %}
+
+    {% if plan_questions or draft_questions %}
+      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Share these details or reply in chat so the agent can finish</span></div>\n        {% if plan_questions %}\n          <p style=\"margin: 8px 0; color: #475569;\">From planning:</p>\n          <ul style=\"color: #0f172a; padding-left: 20px; margin-top: 4px;\">\n            {% for q in plan_questions %}\n              <li style=\"margin-bottom: 6px;\">{{ q }}</li>\n            {% endfor %}\n          </ul>\n        {% endif %}\n        {% if draft_questions %}\n          <p style=\"margin: 8px 0; color: #475569;\">From generated answers:</p>\n          <ul style=\"color: #0f172a; padding-left: 20px; margin-top: 4px;\">\n            {% for q in draft_questions %}\n              <li style=\"margin-bottom: 6px;\">{{ q }}</li>\n            {% endfor %}\n          </ul>\n        {% endif %}\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below to respond; the agent will keep context from your uploads.</p>\n      </div>
     {% endif %}
 
     {% if draft %}
