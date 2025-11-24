@@ -569,4 +569,10 @@ TEMPLATE = """
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    # Bind to loopback by default so the dev server is not exposed to the network unless explicitly
+    # configured. Override via VALIDATION_UI_HOST/VALIDATION_UI_PORT when remote access is required.
+    import os
+
+    host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
+    port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
+    app.run(host=host, port=port, debug=False)

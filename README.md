@@ -33,7 +33,7 @@ Prompts are assembled internally; the UI surfaces only the generated output. Pro
 pip install flask python-docx mammoth
 ```
 
-2. Start the UI server:
+2. Start the UI server (it now binds to `127.0.0.1` by default to avoid internet scanners hitting the dev server; set `VALIDATION_UI_HOST=0.0.0.0` only if you intentionally need remote access):
 
 ```bash
 python webapp.py
