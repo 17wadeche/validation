@@ -12,7 +12,7 @@ from src.validation_agent.prompt_builder import Example, build_planning_prompt, 
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
-from src.validation_agent.docx_utils import DocxExportError, docx_bytes_to_html, draft_to_docx_bytes
+from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
 from src.validation_agent.storage import (
     SavedInputs,
     StoredFile,
@@ -127,7 +127,6 @@ def index():
     history: list[dict] = []
     plan_text: str = ""
     template_bytes: Optional[bytes] = None
-    preview_html: Optional[str] = None
     docx_b64: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
@@ -296,7 +295,6 @@ def index():
                     draft = client.generate_completion(prompt, model=model)
                     docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
                     docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
-                    preview_html = docx_bytes_to_html(docx_bytes)
                 except MedtronicGPTError as exc:
                     error = str(exc)
                 except DocxExportError as exc:
@@ -318,7 +316,6 @@ def index():
         stored=stored,
         saved_inputs=persisted_inputs,
         plan_text=plan_text,
-        preview_html=preview_html,
         docx_b64=docx_b64,
         template_b64=base64.b64encode(template_bytes).decode("utf-8")
         if template_bytes
@@ -390,12 +387,6 @@ TEMPLATE = """
     .chat { margin-top: 6px; }
     .error { border: 1px solid #ef4444; color: #991b1b; background: #fee2e2; padding: 12px 14px; border-radius: 12px; }
     .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
-    .preview { margin-top: 14px; background: #f8fafc; color: #0f172a; border-radius: 14px; padding: 16px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); border: 1px solid rgba(15,23,42,0.08); }
-    .preview h4 { margin: 0 0 8px 0; color: #0f172a; }
-    .preview .doc-surface { background: #fff; border-radius: 12px; padding: 14px; border: 1px solid rgba(15,23,42,0.08); box-shadow: 0 12px 26px rgba(15,23,42,0.08); max-height: 520px; overflow: auto; }
-    .preview .doc-surface table { width: 100%; border-collapse: collapse; }
-    .preview .doc-surface table, .preview .doc-surface td, .preview .doc-surface th { border: 1px solid #cbd5e1; }
-    .preview .doc-surface td, .preview .doc-surface th { padding: 6px; }
   </style>
 </head>
 <body>
@@ -525,17 +516,8 @@ TEMPLATE = """
     {% if draft %}
       <div class=\"card\" style=\"margin-top: 20px;\">
         <div class=\"tagline\"><span class=\"pill\">Generated Answers</span><span>Copy into your template or download with replacements</span></div>
-        <div class=\"preview\">
-          <h4>Live preview</h4>
-          <div class=\"doc-surface\" aria-label=\"Draft preview\" tabindex=\"0\">
-            <div id=\"docx-preview\" aria-label=\"Rendered Word preview\" style=\"min-height: 220px;\"></div>
-            {% if preview_html %}
-              <div id=\"html-preview\" style=\"margin-top: 12px; display: none;\">{{ preview_html | safe }}</div>
-            {% endif %}
-            <div id=\"text-preview\" class=\"output\" style=\"margin-top: 12px; display: none;\">{{ draft }}</div>
-          </div>
-          <p style=\"margin: 10px 0 0; color: #475569;\">Preview mirrors the template layout when Word rendering succeeds; download always reuses your template. The JSON shown includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly.</p>
-        </div>
+        <div class=\"output\" style=\"margin-top: 10px; white-space: pre-wrap;\">{{ draft }}</div>
+        <p style=\"margin: 10px 0 0; color: #475569;\">Download always reuses your uploaded template; the JSON includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly.</p>
         <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
           <input type=\"hidden\" name=\"action\" value=\"download\">
           <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
@@ -582,38 +564,6 @@ TEMPLATE = """
       {% endif %}
     </div>
   </div>
-  <script src="https://unpkg.com/docx-preview@0.5.3/dist/docx-preview.min.js"></script>
-  <script>
-    (function() {
-      const docxData = "{{ docx_b64 or '' }}";
-      const docxContainer = document.getElementById('docx-preview');
-      const htmlPreview = document.getElementById('html-preview');
-      const textPreview = document.getElementById('text-preview');
-
-      async function renderDocx() {
-        if (!docxData || !docxContainer || typeof docx === 'undefined') {
-          if (htmlPreview) htmlPreview.style.display = 'block';
-          if (textPreview) textPreview.style.display = 'block';
-          return;
-        }
-
-        const binary = atob(docxData);
-        const len = binary.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-
-        try {
-          docx.renderAsync(bytes.buffer, docxContainer, docx.defaultOptions);
-        } catch (err) {
-          console.error('Docx preview failed', err);
-          if (htmlPreview) htmlPreview.style.display = 'block';
-          else if (textPreview) textPreview.style.display = 'block';
-        }
-      }
-
-      renderDocx();
-    })();
-  </script>
 </body>
 </html>
 """
