@@ -434,10 +434,21 @@ def _parse_structured_draft(draft: str) -> tuple[str, dict[str, str]]:
 
     if isinstance(data, dict):
         placeholders: dict[str, str] = {}
+        answers = data.get("answers")
         if isinstance(data.get("placeholders"), dict):
             placeholders = {str(k): str(v) for k, v in data["placeholders"].items()}
         elif all(isinstance(v, (str, int, float)) for v in data.values()):
             placeholders = {str(k): str(v) for k, v in data.items()}
+
+        if not placeholders and isinstance(answers, list):
+            for item in answers:
+                if not isinstance(item, dict):
+                    continue
+                token = item.get("token") or item.get("placeholder")
+                value = item.get("answer") or item.get("value")
+                if token is None or value is None:
+                    continue
+                placeholders[str(token)] = str(value)
 
         full_text = data.get("draft") or data.get("full_text") or data.get("text")
         draft_text = str(full_text).strip() if isinstance(full_text, (str, int, float)) else ""

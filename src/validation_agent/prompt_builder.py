@@ -131,8 +131,8 @@ def build_prompt(
     if placeholders:
         prompt_sections.append(
             "\n## Template placeholders to fill\n"
-            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"draft\": \"full narrative draft that matches the completed template\",\n  \"questions\": [optional follow-up questions for any remaining gaps]\n}.\n"
-            "Only the tokens listed below should be replaced. Keep all surrounding labels, bullets, tables, and formatting intact.\n"
+            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"answers\": [ {\"token\": <token>, \"answer\": <replacement>, \"where\": \"describe where it goes\"}, ... ],\n  \"questions\": [optional follow-up questions for any remaining gaps]\n}.\n"
+            "Provide best-effort values for every token you can infer. Keep surrounding labels, bullets, tables, and formatting intact; do not invent new sections.\n"
             + "\n".join(f"- {token}" for token in placeholders)
         )
 
@@ -156,9 +156,9 @@ def build_prompt(
 
     prompt_sections.append(
         "\n## Response rules\n"
-        "- Preserve the template's structure and formatting exactly; replace only the placeholder text while keeping all other content unchanged.\n"
-        "- Always provide your best-effort placeholders map and draft using the supplied information; include a `questions` array only for items you still need clarified instead of withholding the draft.\n"
-        "- If the template is fully answered, set the \"draft\" field to the completed text without wrapping it in code fences.\n"
+        "- Preserve the template's structure and formatting exactly; replace only placeholder text while keeping all other content unchanged.\n"
+        "- Always provide your best-effort `placeholders` map and a matching `answers` list using the supplied information; include a `questions` array only for items you still need clarified.\n"
+        "- You may omit the full draft text; if you include it, keep it aligned to the template.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
     )
 

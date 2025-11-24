@@ -404,7 +404,7 @@ TEMPLATE = """
       <div>
         <div class=\"badge\">Medtronic Validation</div>
         <h1>Validation Draft Builder</h1>
-        <div class=\"subtitle\">Upload your template and examples, then generate a completed draft with MedtronicGPT. Blue placeholder text is replaced in-place so your tables and formatting stay intact.</div>
+        <div class=\"subtitle\">Upload your template and examples, then generate a filled-out answer list with MedtronicGPT. Blue placeholder text is replaced in-place so your tables and formatting stay intact.</div>
       </div>
     </div>
 
@@ -513,7 +513,7 @@ TEMPLATE = """
       </div>
 
       <div class=\"actions\" style=\"margin-top: 18px; gap: 10px;\">
-        <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate draft</button>
+        <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
         <div class=\"pill\">The agent plans, asks questions, and drafts in one step.</div>
       </div>
     </form>
@@ -524,7 +524,7 @@ TEMPLATE = """
 
     {% if draft %}
       <div class=\"card\" style=\"margin-top: 20px;\">
-        <div class=\"tagline\"><span class=\"pill\">Generated Draft</span><span>Grounded in your template, examples, and code</span></div>
+        <div class=\"tagline\"><span class=\"pill\">Generated Answers</span><span>Copy into your template or download with replacements</span></div>
         <div class=\"preview\">
           <h4>Live preview</h4>
           <div class=\"doc-surface\" aria-label=\"Draft preview\" tabindex=\"0\">
@@ -534,7 +534,7 @@ TEMPLATE = """
             {% endif %}
             <div id=\"text-preview\" class=\"output\" style=\"margin-top: 12px; display: none;\">{{ draft }}</div>
           </div>
-          <p style=\"margin: 10px 0 0; color: #475569;\">Preview mirrors the template layout when Word rendering succeeds; download always reuses your template.</p>
+          <p style=\"margin: 10px 0 0; color: #475569;\">Preview mirrors the template layout when Word rendering succeeds; download always reuses your template. The JSON shown includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly.</p>
         </div>
         <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
           <input type=\"hidden\" name=\"action\" value=\"download\">
