@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from typing import Iterable, Optional
 
@@ -13,8 +14,8 @@ class DocxExportError(RuntimeError):
     """Raised when a draft cannot be exported to DOCX."""
 
 
-def _iter_paragraphs(document) -> Iterable:
-    """Yield all paragraphs, including tables, headers, and footers."""
+def _iter_paragraphs(document, include_headers_footers: bool = False) -> Iterable:
+    """Yield paragraphs across the document, optionally headers/footers."""
 
     for paragraph in document.paragraphs:
         yield paragraph
@@ -22,15 +23,18 @@ def _iter_paragraphs(document) -> Iterable:
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
-                yield from _iter_paragraphs(cell)
+                yield from _iter_paragraphs(cell, include_headers_footers=include_headers_footers)
+
+    if not include_headers_footers:
+        return
 
     for section in getattr(document, "sections", []) or []:
         for hdr in (section.header, section.first_page_header, section.even_page_header):
             if hdr:
-                yield from _iter_paragraphs(hdr)
+                yield from _iter_paragraphs(hdr, include_headers_footers=include_headers_footers)
         for ftr in (section.footer, section.first_page_footer, section.even_page_footer):
             if ftr:
-                yield from _iter_paragraphs(ftr)
+                yield from _iter_paragraphs(ftr, include_headers_footers=include_headers_footers)
 
 
 KNOWN_PLACEHOLDER_SNIPPETS = [
@@ -272,6 +276,25 @@ def _replace_run_with_draft(run, draft: str):
         run.add_text(part)
 
 
+def _replace_tokens_in_run(run, draft: str) -> bool:
+    """Replace inline placeholder tokens inside a run while preserving styling."""
+
+    text = getattr(run, "text", "") or ""
+    if not text:
+        return False
+
+    pattern = re.compile(r"(<[^>]+>|\[\[[^\]]+\]\]|\{[^}]+\}|_{3,})")
+    if not pattern.search(text):
+        return False
+
+    replaced = pattern.sub(draft, text)
+    if replaced != text:
+        run.text = replaced
+        return True
+
+    return False
+
+
 def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> bytes:
     try:
         from docx import Document  # type: ignore
@@ -306,6 +329,10 @@ def draft_to_docx_bytes(draft: str, template_bytes: Optional[bytes] = None) -> b
             continue
 
         for idx, run in enumerate(runs):
+            if _replace_tokens_in_run(run, draft):
+                inserted = True
+                break
+
             if _is_placeholder_run(run):
                 _replace_run_with_draft(run, draft)
                 for follower in runs[idx + 1 :]:
