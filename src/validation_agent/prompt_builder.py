@@ -130,9 +130,19 @@ def build_prompt(
     placeholders = extract_placeholders(template)
     if placeholders:
         prompt_sections.append(
-            "\n## Template placeholders to fill\n"
-            "Return structured JSON as: {\n  \"placeholders\": {<token>: <replacement>, ...},\n  \"answers\": [ {\"token\": <token>, \"answer\": <replacement>, \"where\": \"describe where it goes\"}, ... ],\n  \"questions\": [optional follow-up questions for any remaining gaps]\n}.\n"
-            "Provide best-effort values for every token you can infer. Keep surrounding labels, bullets, tables, and formatting intact; do not invent new sections.\n"
+            "\n## Template placeholders to map\n"
+            "Return structured JSON only, as: {\n"
+            "  \"placeholders\": {<token>: <replacement>, ...},\n"
+            "  \"answers\": [ {\n"
+            "    \"placeholder\": <token or exact blue/instructional text>,\n"
+            "    \"replacement\": <what to put there (or 'delete' to remove)>,\n"
+            "    \"where\": \"describe the section/table cell this belongs in\"\n"
+            "  } ],\n"
+            "  \"questions\": [optional, only for items still unknown]\n"
+            "}.\n"
+            "- Map every placeholder you can infer, including long blue instructional sentences (e.g., the sample purpose statements).\n"
+            "- Do NOT embed the full draft; just provide the mappings and any necessary questions.\n"
+            "- Keep labels, bullets, and table headers unchanged—only tell the user what to type in place of the placeholder.\n"
             + "\n".join(f"- {token}" for token in placeholders)
         )
 
@@ -156,9 +166,9 @@ def build_prompt(
 
     prompt_sections.append(
         "\n## Response rules\n"
-        "- Preserve the template's structure and formatting exactly; replace only placeholder text while keeping all other content unchanged.\n"
-        "- Always provide your best-effort `placeholders` map and a matching `answers` list using the supplied information; include a `questions` array only for items you still need clarified.\n"
-        "- You may omit the full draft text; if you include it, keep it aligned to the template.\n"
+        "- Preserve the template's structure conceptually; do not rewrite sections—just tell the user what to type.\n"
+        "- Always include your best-effort `placeholders` map and `answers` list even if some items are blank; add `questions` only for the missing pieces.\n"
+        "- Do not provide the full draft text; focus on explicit mappings from template text (blue instructions or <tokens>) to replacements.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
     )
 

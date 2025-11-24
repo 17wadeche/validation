@@ -444,8 +444,17 @@ def _parse_structured_draft(draft: str) -> tuple[str, dict[str, str]]:
             for item in answers:
                 if not isinstance(item, dict):
                     continue
-                token = item.get("token") or item.get("placeholder")
-                value = item.get("answer") or item.get("value")
+                token = (
+                    item.get("token")
+                    or item.get("placeholder")
+                    or item.get("template_text")
+                    or item.get("text")
+                )
+                value = (
+                    item.get("replacement")
+                    or item.get("answer")
+                    or item.get("value")
+                )
                 if token is None or value is None:
                     continue
                 placeholders[str(token)] = str(value)
