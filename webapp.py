@@ -210,18 +210,7 @@ def index():
         except json.JSONDecodeError:
             history = []
 
-        if action == "plan":
-            if not client:
-                error = "Provide MedtronicGPT credentials to plan the document."
-            else:
-                planning_prompt = build_planning_prompt(
-                    template_text or "", examples, code_context
-                )
-                try:
-                    plan_text = client.generate_completion(planning_prompt, model=model)
-                except MedtronicGPTError as exc:
-                    error = str(exc)
-        elif action == "chat" and client:
+        if action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
             if user_message:
                 history.append({"role": "user", "content": user_message})
@@ -292,15 +281,26 @@ def index():
                     as_attachment=True,
                 )
         elif action == "build" and client:
-            try:
-                draft = client.generate_completion(prompt, model=model)
-                docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
-                docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
-                preview_html = docx_bytes_to_html(docx_bytes)
-            except MedtronicGPTError as exc:
-                error = str(exc)
-            except DocxExportError as exc:
-                error = str(exc)
+            if not plan_text.strip():
+                planning_prompt = build_planning_prompt(
+                    template_text or "", examples, code_context
+                )
+                try:
+                    plan_text = client.generate_completion(planning_prompt, model=model)
+                except MedtronicGPTError as exc:
+                    error = str(exc)
+
+            if not error:
+                prompt = build_prompt(template_text or "", examples, code_context, plan_context=plan_text)
+                try:
+                    draft = client.generate_completion(prompt, model=model)
+                    docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
+                    docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
+                    preview_html = docx_bytes_to_html(docx_bytes)
+                except MedtronicGPTError as exc:
+                    error = str(exc)
+                except DocxExportError as exc:
+                    error = str(exc)
 
         if request.form.get("remember_inputs") == "on":
             final_template = stored_template if stored_template else (stored_inputs.template if keep_saved_template else None)
@@ -513,9 +513,8 @@ TEMPLATE = """
       </div>
 
       <div class=\"actions\" style=\"margin-top: 18px; gap: 10px;\">
-        <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"plan\">Plan document needs</button>
         <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate draft</button>
-        <div class=\"pill\">Plan first, then draft once questions are answered.</div>
+        <div class=\"pill\">The agent plans, asks questions, and drafts in one step.</div>
       </div>
     </form>
 
