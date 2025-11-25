@@ -18,11 +18,15 @@ class MedtronicGPTClient:
     api_version: str = "3.0"
     path_template: str = "/models/{model}"
     refresh_path: str = "/tokens/refresh"
+    temperature: float | None = 0.0
+    max_tokens: int | None = 2000
     last_refresh: bool = field(default=False, init=False)
 
     DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
+    DEFAULT_TEMPERATURE = 0.0
+    DEFAULT_MAX_TOKENS = 2000
 
     def generate_completion(
         self,
@@ -30,6 +34,8 @@ class MedtronicGPTClient:
         *,
         model: str = "gpt-41",
         messages: list[dict] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         # Reset refresh flag for this request
         self.last_refresh = False
@@ -47,7 +53,16 @@ class MedtronicGPTClient:
             if not path.startswith("/"):
                 path = f"/{path}"
             url = f"{self.base_url.rstrip('/')}{path}"
-            payload = json.dumps({"messages": payload_messages}).encode("utf-8")
+            payload_body: dict = {"messages": payload_messages}
+            payload_temperature = temperature if temperature is not None else self.temperature
+            if payload_temperature is not None:
+                payload_body["temperature"] = float(payload_temperature)
+
+            payload_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
+            if payload_max_tokens is not None:
+                payload_body["max_tokens"] = int(payload_max_tokens)
+
+            payload = json.dumps(payload_body).encode("utf-8")
             headers = {
                 "Content-Type": "application/json",
                 "subscription-key": self.subscription_key,
