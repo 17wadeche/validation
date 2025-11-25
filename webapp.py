@@ -145,6 +145,7 @@ def index():
     template_bytes: Optional[bytes] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
+    draft_json_from_form: str = ""
 
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -163,11 +164,16 @@ def index():
     )
 
     if request.method == "POST":
+        draft_json_from_form = request.form.get("draft_json", "")
         keep_saved_template = request.form.get("remove_template") != "on"
         kept_saved_examples: List[StoredFile] = []
         for idx, saved_example in enumerate(stored_inputs.examples):
             if request.form.get(f"keep_example_{idx}") == "on":
                 kept_saved_examples.append(saved_example)
+
+        # defaults in case inputs are not being remembered
+        final_template: Optional[StoredFile] = stored_inputs.template if keep_saved_template else None
+        final_examples: List[StoredFile] = kept_saved_examples
 
         plan_text = request.form.get("plan_text", "")
         remember_credentials = request.form.get("remember_credentials") == "on"
@@ -224,6 +230,42 @@ def index():
         except json.JSONDecodeError:
             history = []
 
+        if action == "answers":
+            answered = []
+            for key, value in request.form.items():
+                if key.startswith("question_"):
+                    idx = key.split("_", 1)[1]
+                    question = value.strip()
+                    answer = request.form.get(f"answer_{idx}", "").strip()
+                    if question and answer:
+                        answered.append((question, answer))
+
+            if not draft_json_from_form.strip():
+                error = "No draft JSON was provided to update with answers."
+            else:
+                try:
+                    parsed = json.loads(draft_json_from_form)
+                except json.JSONDecodeError:
+                    parsed = None
+                    error = "Draft JSON could not be parsed."
+
+                if parsed is not None:
+                    answers_list = parsed.get("answers")
+                    if not isinstance(answers_list, list):
+                        answers_list = []
+                    questions_list = parsed.get("questions")
+                    if not isinstance(questions_list, list):
+                        questions_list = []
+
+                    for question, answer in answered:
+                        answers_list.append({"question": question, "answer": answer})
+                        questions_list = [q for q in questions_list if q != question]
+
+                    parsed["answers"] = answers_list
+                    parsed["questions"] = questions_list
+                    draft = json.dumps(parsed, indent=2)
+                    draft_questions = [q for q in questions_list if q]
+
         if action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
             if user_message:
@@ -272,8 +314,13 @@ def index():
                 except MedtronicGPTError as exc:
                     error = str(exc)
 
+        # carry forward previously generated draft when answering questions or chatting without rebuilding
+        if action in {"chat", "answers"} and not draft and draft_json_from_form.strip():
+            draft = draft_json_from_form
+            draft_questions = _extract_questions_from_json(draft)
+
         if request.form.get("remember_inputs") == "on":
-            final_template = stored_template if stored_template else (stored_inputs.template if keep_saved_template else None)
+            final_template = stored_template if stored_template else final_template
             final_examples = stored_examples
         persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
         save_inputs(persisted_inputs)
@@ -488,7 +535,7 @@ TEMPLATE = """
     </form>
 
     {% if draft_questions %}
-      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Share these details or reply in chat so the agent can finish</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">From generated answers:</p>\n        <ul style=\"color: #0f172a; padding-left: 20px; margin-top: 4px;\">\n          {% for q in draft_questions %}\n            <li style=\"margin-bottom: 6px;\">{{ q }}</li>\n          {% endfor %}\n        </ul>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below to respond; the agent will keep context from your uploads.</p>\n      </div>
+      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below.</p>\n        <form method=\"post\">\n          <input type=\"hidden\" name=\"action\" value=\"answers\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\">Save answers into JSON</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
     {% endif %}
 
     {% if draft %}
