@@ -169,7 +169,8 @@ def build_prompt(
         "- Preserve the template's structure conceptually; do not rewrite sections—just tell the user what to type.\n"
         "- Always include your best-effort `placeholders` map and `answers` list even if some items are blank; add `questions` only for the missing pieces.\n"
         "- Do not provide the full draft text; focus on explicit mappings from template text (blue instructions or <tokens>) to replacements.\n"
-        "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context."
+        "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context.\n"
+        "- Never fabricate person names or signatures; leave them blank or ask a question when not provided."
     )
 
     return "\n\n".join(prompt_sections).strip() + "\n"

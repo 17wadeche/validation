@@ -412,10 +412,50 @@ TEMPLATE = """
     .chat { margin-top: 6px; }
     .error { border: 1px solid #ef4444; color: #991b1b; background: #fee2e2; padding: 12px 14px; border-radius: 12px; }
     .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
+    .loading {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      backdrop-filter: blur(2px);
+    }
+    .loading.visible { display: flex; }
+    .loading-card {
+      background: #fff;
+      padding: 18px 20px;
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 260px;
+      border: 1px solid var(--border);
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(37, 99, 235, 0.25);
+      border-top-color: #2563eb;
+      border-radius: 999px;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <div class=\"page\">
+    <div class=\"loading\" id=\"loading\" aria-live=\"polite\" aria-busy=\"true\">
+      <div class=\"loading-card\">
+        <div class=\"spinner\" role=\"status\" aria-label=\"Loading\"></div>
+        <div>
+          <div style=\"font-weight: 700; color: var(--text);\">Working on your answers…</div>
+          <div style=\"color: var(--muted); font-size: 14px;\">This may take a few seconds.</div>
+        </div>
+      </div>
+    </div>
     <div class=\"header\">
       <div>
         <div class=\"badge\">Medtronic Validation</div>
@@ -428,7 +468,7 @@ TEMPLATE = """
       <div class=\"error\"><strong>Error:</strong> {{ error }}</div>
     {% endif %}
 
-    <form method=\"post\" enctype=\"multipart/form-data\">
+    <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <div class=\"grid\">
         <div class=\"card\">
@@ -578,6 +618,19 @@ TEMPLATE = """
       {% endif %}
     </div>
   </div>
+  <script>
+    const loading = document.getElementById('loading');
+    const mainForm = document.getElementById('mainForm');
+    if (mainForm && loading) {
+      mainForm.addEventListener('submit', (event) => {
+        const submitter = event.submitter;
+        const actionValue = submitter ? submitter.value : mainForm.querySelector('input[name="action"]')?.value;
+        if (actionValue === 'build') {
+          loading.classList.add('visible');
+        }
+      });
+    }
+  </script>
 </body>
 </html>
 """
