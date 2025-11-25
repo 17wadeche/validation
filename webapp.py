@@ -12,6 +12,7 @@ from src.validation_agent.prompt_builder import (
     build_planning_prompt,
     build_prompt,
     build_update_prompt,
+    extract_placeholders,
 )
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
@@ -108,6 +109,51 @@ def _gather_code_context(code_files, inline_code: str) -> str:
     return "\n".join(snippets).strip()
 
 
+def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[str]:
+    if not template_text or not draft_json:
+        return []
+
+    tokens = [tok.strip() for tok in extract_placeholders(template_text) if tok.strip()]
+    if not tokens:
+        return []
+
+    try:
+        data = json.loads(draft_json)
+    except Exception:
+        return tokens
+
+    filled = set()
+
+    placeholders_map = data.get("placeholders") if isinstance(data, dict) else {}
+    if isinstance(placeholders_map, dict):
+        for token, value in placeholders_map.items():
+            token = str(token).strip()
+            if not token:
+                continue
+            if isinstance(value, str):
+                if value.strip():
+                    filled.add(token)
+            elif value is not None:
+                filled.add(token)
+
+    answers = data.get("answers") if isinstance(data, dict) else []
+    if isinstance(answers, list):
+        for entry in answers:
+            if not isinstance(entry, dict):
+                continue
+            token = str(entry.get("placeholder", "")).strip()
+            replacement = entry.get("replacement", entry.get("answer"))
+            if not token:
+                continue
+            if replacement is None:
+                continue
+            if isinstance(replacement, str) and not replacement.strip():
+                continue
+            filled.add(token)
+
+    return [tok for tok in tokens if tok not in filled]
+
+
 def _build_prompt_from_request(
     form,
     files,
@@ -149,6 +195,8 @@ def index():
     draft_questions: List[str] = []
     template_bytes: Optional[bytes] = None
     code_context_text: str = ""
+    template_text: str = ""
+    missing_placeholders: List[str] = []
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
@@ -373,6 +421,10 @@ def index():
             )
             save_credentials(stored)
 
+        coverage_source = draft or draft_json_from_form
+        if template_text and coverage_source:
+            missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
+
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
@@ -386,6 +438,8 @@ def index():
         draft_questions=draft_questions,
         code_context=code_context_text,
         draft_json=draft_json_from_form,
+        template_text=template_text,
+        missing_placeholders=missing_placeholders,
     )
 
 
@@ -631,6 +685,22 @@ TEMPLATE = """
       </div>
     {% endif %}
 
+    {% if template_text and (draft or draft_json) %}
+      <div class=\"card\" style=\"margin-top: 18px;\">
+        <div class=\"tagline\"><span class=\"pill\">Coverage check</span><span>Template placeholders</span></div>
+        {% if missing_placeholders %}
+          <p style=\"margin: 6px 0 10px; color: #475569;\">These placeholders still need answers:</p>
+          <ul style=\"margin: 0; padding-left: 18px; color: #0f172a;\">
+            {% for token in missing_placeholders %}
+              <li>{{ token }}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p style=\"margin: 6px 0 0; color: #0f172a;\">All detected placeholders have values based on the current answers.</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
     <div class=\"card\" style=\"margin-top: 18px;\"> 
       <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span></div>
       <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs. Responses stay grounded in your uploaded template, examples, code context, and the latest answers.</p>
@@ -757,6 +827,7 @@ TEMPLATE = """
         : [];
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
       const questions = Array.isArray(parsed.questions) ? parsed.questions.filter(q => String(q || '').trim()) : [];
+      const coverage = parsed.coverage && typeof parsed.coverage === 'object' ? parsed.coverage : null;
 
       const sections = [];
       if (placeholders.length) {
@@ -780,6 +851,20 @@ TEMPLATE = """
       if (questions.length) {
         const list = questions.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
         sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Questions</div><ul>${list}</ul></div>`);
+      }
+      if (coverage) {
+        const missingTokens = Array.isArray(coverage.missing_tokens) ? coverage.missing_tokens : [];
+        const unmappedSections = Array.isArray(coverage.unmapped_sections) ? coverage.unmapped_sections : [];
+        const parts = [];
+        if (missingTokens.length) {
+          parts.push(`<div style="margin-bottom:6px;"><strong>Missing tokens</strong><ul>${missingTokens.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul></div>`);
+        }
+        if (unmappedSections.length) {
+          parts.push(`<div><strong>Unmapped sections</strong><ul>${unmappedSections.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul></div>`);
+        }
+        if (parts.length) {
+          sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Coverage</div>${parts.join('')}</div>`);
+        }
       }
 
       friendlyView.innerHTML = sections.join('') || 'No parsed placeholders or answers available.';

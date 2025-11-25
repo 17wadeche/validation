@@ -170,6 +170,7 @@ def build_prompt(
         "- Always include your best-effort `placeholders` map and `answers` list even if some items are blank; add `questions` only for the missing pieces.\n"
         "- Do not provide the full draft text; focus on explicit mappings from template text (blue instructions or <tokens>) to replacements.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context.\n"
+        "- Add a `coverage` object that lists any `missing_tokens` and `unmapped_sections` you could not fill so gaps are explicit.\n"
         "- Never fabricate person names or signatures; leave them blank or ask a question when not provided."
     )
 
@@ -239,6 +240,7 @@ def build_update_prompt(
         "- Output valid JSON only (no code fences).\n"
         "- Return placeholders map plus answers list and remaining questions.\n"
         "- Reuse prior values when still valid; add new inferred placeholder fills based on the answers and template cues.\n"
+        "- Include a `coverage` object listing any `missing_tokens` and `unmapped_sections` that are still unresolved.\n"
         "- Do not invent person names or signatures; leave them blank or add a clarifying question.\n"
         "- If a placeholder appears multiple times, ensure the same value is reused consistently.\n"
     )
