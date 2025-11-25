@@ -702,29 +702,27 @@ TEMPLATE = """
     {% endif %}
 
 
-    {% if template_text and (draft or draft_json) %}
-      <div class="section">
-        <div class="section-head">
-          <h2>Coverage</h2>
-          <p>See which template tokens still need answers.</p>
+      {% if template_text and (draft or draft_json) %}
+        <div class="section">
+          <div class="section-head">
+            <h2>Coverage</h2>
+            <p>See which template tokens still need answers.</p>
+          </div>
+          <div class="card" style="margin-top: 10px;">
+          <div class="tagline"><span class="pill">Coverage check</span><span>Template placeholders</span></div>
+          {% if missing_placeholders %}
+            <p style="margin: 6px 0 10px; color: #475569;">These placeholders still need answers:</p>
+            <ul style="margin: 0; padding-left: 18px; color: #0f172a;">
+              {% for token in missing_placeholders %}
+                <li>{{ token }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p style="margin: 6px 0 0; color: #0f172a;">All detected placeholders have values based on the current answers.</p>
+          {% endif %}
         </div>
-        <div class="card" style="margin-top: 10px;">
-        <div class="tagline"><span class="pill">Coverage check</span><span>Template placeholders</span></div>
-        {% if missing_placeholders %}
-          <p style="margin: 6px 0 10px; color: #475569;">These placeholders still need answers:</p>
-          <ul style="margin: 0; padding-left: 18px; color: #0f172a;">
-            {% for token in missing_placeholders %}
-              <li>{{ token }}</li>
-            {% endfor %}
-          </ul>
-        {% else %}
-          <p style="margin: 6px 0 0; color: #0f172a;">All detected placeholders have values based on the current answers.</p>
-        {% endif %}
-      </div>
-      </div>
-    {% endif %}
-      </div>
-    {% endif %}
+        </div>
+      {% endif %}
 
 
     <div class="section" style="margin-bottom: 12px;">
@@ -765,7 +763,9 @@ TEMPLATE = """
         {% endif %}
       </div>
     </div>
-  <script>
+    </div>
+
+    <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
     const answersForm = document.getElementById('answersForm');
