@@ -314,6 +314,15 @@ def index():
                             + plan_text.strip(),
                         }
                     )
+                context_json = draft or draft_json_from_form
+                if context_json and context_json.strip():
+                    full_history.append(
+                        {
+                            "role": "system",
+                            "content": "Ground answers in the latest generated JSON (placeholders/answers/questions):\n"
+                            + context_json.strip(),
+                        }
+                    )
                 full_history += history
                 try:
                     reply = client.generate_completion(model=model, messages=full_history)
@@ -486,7 +495,7 @@ TEMPLATE = """
       <div>
         <div class=\"badge\">Medtronic Validation</div>
         <h1>Validation Draft Builder</h1>
-        <div class=\"subtitle\">Upload your template and examples, then generate a filled-out answer list with MedtronicGPT. Blue placeholder text is replaced in-place so your tables and formatting stay intact.</div>
+        <div class=\"subtitle\">Upload your template and examples, then generate a filled-out answer list with MedtronicGPT.</div>
       </div>
     </div>
 
@@ -596,7 +605,6 @@ TEMPLATE = """
 
       <div class=\"actions\" style=\"margin-top: 18px; gap: 10px;\">
         <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
-        <div class=\"pill\">The agent plans, asks questions, and drafts in one step.</div>
       </div>
     </form>
 
