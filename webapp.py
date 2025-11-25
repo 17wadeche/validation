@@ -558,7 +558,7 @@ TEMPLATE = """
         </div>
 
         <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">MedtronicGPT</span><span>Connection is pre-enabled</span></div>
+          <div class=\"tagline\"><span class=\"pill\">MedtronicGPT</span><span>Connection is pre-enabled</span><button type=\"button\" class=\"pill\" id=\"toggleModelCard\" style=\"margin-left:auto;\">Hide</button></div>\n          <div id=\"modelCardBody\">
           <div style=\"margin-top: 12px;\">
             <label class=\"checkbox\">
               <input type=\"checkbox\" name=\"use_model\" id=\"use_model\" checked>
@@ -670,6 +670,8 @@ TEMPLATE = """
     const mainForm = document.getElementById('mainForm');
     const answersForm = document.getElementById('answersForm');
     const chatForm = document.getElementById('chatForm');
+    const modelToggle = document.getElementById('toggleModelCard');
+    const modelBody = document.getElementById('modelCardBody');
     if (mainForm && loading) {
       mainForm.addEventListener('submit', (event) => {
         const submitter = event.submitter;
@@ -691,6 +693,19 @@ TEMPLATE = """
     if (chatForm && loading) {
       chatForm.addEventListener('submit', () => {
         loading.classList.add('visible');
+      });
+    }
+
+    if (modelToggle && modelBody) {
+      modelToggle.addEventListener('click', () => {
+        const hidden = modelBody.style.display === 'none';
+        if (hidden) {
+          modelBody.style.display = '';
+          modelToggle.textContent = 'Hide';
+        } else {
+          modelBody.style.display = 'none';
+          modelToggle.textContent = 'Show';
+        }
       });
     }
 
