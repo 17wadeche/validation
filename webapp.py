@@ -619,9 +619,15 @@ TEMPLATE = """
 
     {% if draft %}
       <div class="card" style="margin-top: 20px;">
-        <div class="tagline"><span class="pill">Generated Answers</span><span>Copy into your template</span></div>
-        <div class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
-        <p style="margin: 10px 0 0; color: #475569;">The JSON includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly into the template you uploaded.</p>
+        <div class="tagline"><span class="pill">Generated Answers</span><span>Copy</span></div>
+        <div class="actions" style="margin-top: 8px; gap: 8px;">
+          <div class="pill" id="viewToggleJson" style="cursor: pointer;">JSON view</div>
+          <div class="pill" id="viewToggleFriendly" style="cursor: pointer; background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.3);">Easy view</div>
+          <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
+        </div>
+        <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
+        <div id="friendlyView" class="output" style="margin-top: 10px; display: none;"></div>
+        <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of replacements/questions. Use Copy all to grab the current JSON.</p>
       </div>
     {% endif %}
 
@@ -685,6 +691,93 @@ TEMPLATE = """
     if (chatForm && loading) {
       chatForm.addEventListener('submit', () => {
         loading.classList.add('visible');
+      });
+    }
+
+    const rawDraft = {{ draft|tojson if draft else 'null' }};
+    const jsonView = document.getElementById('jsonView');
+    const friendlyView = document.getElementById('friendlyView');
+    const toggleJson = document.getElementById('viewToggleJson');
+    const toggleFriendly = document.getElementById('viewToggleFriendly');
+    const copyAll = document.getElementById('copyAll');
+
+    function renderFriendly() {
+      if (!friendlyView || rawDraft === null) return;
+      let parsed;
+      try {
+        parsed = JSON.parse(rawDraft);
+      } catch (e) {
+        friendlyView.textContent = 'Could not parse JSON. Use the JSON view to copy manually.';
+        return;
+      }
+
+      const placeholders = parsed.placeholders && typeof parsed.placeholders === 'object'
+        ? Object.entries(parsed.placeholders).filter(([, v]) => String(v || '').trim())
+        : [];
+      const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+      const questions = Array.isArray(parsed.questions) ? parsed.questions.filter(q => String(q || '').trim()) : [];
+
+      const sections = [];
+      if (placeholders.length) {
+        const list = placeholders.map(([k, v]) => `<li><strong>${k}</strong>: ${v}</li>`).join('');
+        sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Placeholders</div><ul>${list}</ul></div>`);
+      }
+      if (answers.length) {
+        const list = answers.map((item) => {
+          if (item.placeholder && item.replacement !== undefined) {
+            return `<li><strong>${item.placeholder}</strong> → ${item.replacement}</li>`;
+          }
+          if (item.question && item.answer) {
+            return `<li><strong>${item.question}</strong> → ${item.answer}</li>`;
+          }
+          return '';
+        }).filter(Boolean).join('');
+        if (list) {
+          sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
+        }
+      }
+      if (questions.length) {
+        const list = questions.map((q) => `<li>${q}</li>`).join('');
+        sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Questions</div><ul>${list}</ul></div>`);
+      }
+
+      friendlyView.innerHTML = sections.join('') || 'No parsed placeholders or answers available.';
+    }
+
+    if (toggleJson && toggleFriendly && jsonView && friendlyView) {
+      toggleJson.addEventListener('click', () => {
+        jsonView.style.display = 'block';
+        friendlyView.style.display = 'none';
+        toggleJson.style.background = 'rgba(34,211,238,0.1)';
+        toggleJson.style.borderColor = 'rgba(34,211,238,0.3)';
+        toggleFriendly.style.background = 'rgba(34,197,94,0.05)';
+        toggleFriendly.style.borderColor = 'rgba(34,197,94,0.2)';
+      });
+      toggleFriendly.addEventListener('click', () => {
+        renderFriendly();
+        jsonView.style.display = 'none';
+        friendlyView.style.display = 'block';
+        toggleFriendly.style.background = 'rgba(34,197,94,0.1)';
+        toggleFriendly.style.borderColor = 'rgba(34,197,94,0.3)';
+        toggleJson.style.background = 'rgba(34,211,238,0.05)';
+        toggleJson.style.borderColor = 'rgba(34,211,238,0.2)';
+      });
+      // default to friendly view when available
+      renderFriendly();
+      jsonView.style.display = 'none';
+      friendlyView.style.display = 'block';
+    }
+
+    if (copyAll && rawDraft !== null) {
+      copyAll.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(rawDraft);
+          copyAll.textContent = 'Copied!';
+          setTimeout(() => (copyAll.textContent = 'Copy all'), 1200);
+        } catch (e) {
+          copyAll.textContent = 'Copy failed';
+          setTimeout(() => (copyAll.textContent = 'Copy all'), 1200);
+        }
       });
     }
   </script>
