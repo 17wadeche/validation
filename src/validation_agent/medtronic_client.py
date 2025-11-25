@@ -19,14 +19,14 @@ class MedtronicGPTClient:
     path_template: str = "/models/{model}"
     refresh_path: str = "/tokens/refresh"
     temperature: float | None = 0.0
-    max_tokens: int | None = 2000
+    max_tokens: int | None = 32768
     last_refresh: bool = field(default=False, init=False)
 
     DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
     DEFAULT_TEMPERATURE = 0.0
-    DEFAULT_MAX_TOKENS = 2000
+    DEFAULT_MAX_TOKENS = 32768
 
     def generate_completion(
         self,
