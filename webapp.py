@@ -404,6 +404,10 @@ def index():
             draft = draft_json_from_form
             draft_questions = _extract_questions_from_json(draft)
 
+        # Keep the latest answers JSON in sync across forms after any update.
+        if draft:
+            draft_json_from_form = draft
+
         if request.form.get("remember_inputs") == "on":
             final_template = stored_template if stored_template else final_template
             final_examples = stored_examples
