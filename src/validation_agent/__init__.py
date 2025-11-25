@@ -5,6 +5,7 @@ from .prompt_builder import (
     Example,
     build_planning_prompt,
     build_prompt,
+    build_update_prompt,
     format_examples,
     load_examples,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ValidationAgent",
     "build_planning_prompt",
     "build_prompt",
+    "build_update_prompt",
     "format_examples",
     "load_code_context",
     "load_examples",

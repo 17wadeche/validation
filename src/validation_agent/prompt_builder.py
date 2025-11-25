@@ -174,3 +174,73 @@ def build_prompt(
     )
 
     return "\n\n".join(prompt_sections).strip() + "\n"
+
+
+def build_update_prompt(
+    template: str,
+    examples: Iterable[Example],
+    code_context: str,
+    prior_json: str,
+    answered: list[tuple[str, str]] | None = None,
+    plan_context: str | None = None,
+) -> str:
+    """Ask the model to merge new answers into an existing mapping JSON."""
+
+    answered = answered or []
+
+    prompt_sections = [
+        "You are an AI assistant that updates Medtronic validation mappings.",
+        "You will be given the template, prior JSON mappings (placeholders/answers/questions), and new user-provided answers.",
+        "Merge them into an updated JSON while preserving existing values unless they conflict with the new answers.",
+        "Return JSON only with the keys: placeholders, answers (list of {question, answer, placeholder?}), and questions (still-open items).",
+        "Fill every placeholder you can infer from the new answers, examples, template cues, and code context; keep unknowns blank and list them in questions.",
+        "Never fabricate person names or signatures—leave them blank or move them to questions when missing.",
+    ]
+
+    prompt_sections.append("\n## Template\n" + template.strip())
+
+    placeholders = extract_placeholders(template)
+    if placeholders:
+        prompt_sections.append(
+            "\n## Template placeholders to map\n" + "\n".join(f"- {token}" for token in placeholders)
+        )
+
+    formatted_examples = format_examples(examples)
+    if formatted_examples:
+        prompt_sections.append("\n## Reference examples\n" + formatted_examples)
+
+    if plan_context and plan_context.strip():
+        prompt_sections.append(
+            "\n## Drafting plan\n"
+            "Use this plan when deciding where to place generated content.\n"
+            + plan_context.strip()
+        )
+
+    prompt_sections.append(
+        "\n## Program code context\n"
+        "Ground replacements in the provided code details.\n"
+        + code_context.strip()
+    )
+
+    prompt_sections.append(
+        "\n## Prior JSON mapping\n"
+        "Update this JSON instead of starting over. Keep existing answers unless replaced by new input.\n"
+        + prior_json.strip()
+    )
+
+    if answered:
+        answered_lines = [f"- Q: {q}\n  A: {a}" for q, a in answered if q or a]
+        prompt_sections.append(
+            "\n## New answers to merge\n" + "\n".join(answered_lines)
+        )
+
+    prompt_sections.append(
+        "\n## Response rules\n"
+        "- Output valid JSON only (no code fences).\n"
+        "- Return placeholders map plus answers list and remaining questions.\n"
+        "- Reuse prior values when still valid; add new inferred placeholder fills based on the answers and template cues.\n"
+        "- Do not invent person names or signatures; leave them blank or add a clarifying question.\n"
+        "- If a placeholder appears multiple times, ensure the same value is reused consistently.\n"
+    )
+
+    return "\n\n".join(prompt_sections).strip() + "\n"

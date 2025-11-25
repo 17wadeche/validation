@@ -7,7 +7,12 @@ from typing import List, Optional, Tuple
 
 from flask import Flask, render_template_string, request
 
-from src.validation_agent.prompt_builder import Example, build_planning_prompt, build_prompt
+from src.validation_agent.prompt_builder import (
+    Example,
+    build_planning_prompt,
+    build_prompt,
+    build_update_prompt,
+)
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
@@ -168,7 +173,8 @@ def index():
         keep_saved_template = request.form.get("remove_template") != "on"
         kept_saved_examples: List[StoredFile] = []
         for idx, saved_example in enumerate(stored_inputs.examples):
-            if request.form.get(f"keep_example_{idx}") == "on":
+            keep_flag = request.form.get(f"keep_example_{idx}")
+            if keep_flag is None or keep_flag == "on":
                 kept_saved_examples.append(saved_example)
 
         # defaults in case inputs are not being remembered
@@ -230,7 +236,7 @@ def index():
         except json.JSONDecodeError:
             history = []
 
-        if action == "answers":
+        if action in {"answers", "refine"}:
             answered = []
             for key, value in request.form.items():
                 if key.startswith("question_"):
@@ -257,14 +263,34 @@ def index():
                     if not isinstance(questions_list, list):
                         questions_list = []
 
-                    for question, answer in answered:
-                        answers_list.append({"question": question, "answer": answer})
-                        questions_list = [q for q in questions_list if q != question]
+                    if answered:
+                        for question, answer in answered:
+                            answers_list.append({"question": question, "answer": answer})
+                            questions_list = [q for q in questions_list if q != question]
 
                     parsed["answers"] = answers_list
                     parsed["questions"] = questions_list
-                    draft = json.dumps(parsed, indent=2)
-                    draft_questions = [q for q in questions_list if q]
+
+                    if action == "answers":
+                        draft = json.dumps(parsed, indent=2)
+                        draft_questions = [q for q in questions_list if q]
+                    elif action == "refine":
+                        if not client:
+                            error = "Provide MedtronicGPT credentials to update with GPT."
+                        else:
+                            update_prompt = build_update_prompt(
+                                template_text or "",
+                                examples,
+                                code_context,
+                                json.dumps(parsed),
+                                answered,
+                                plan_context=plan_text,
+                            )
+                            try:
+                                draft = client.generate_completion(update_prompt, model=model)
+                                draft_questions = _extract_questions_from_json(draft)
+                            except MedtronicGPTError as exc:
+                                error = str(exc)
 
         if action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
@@ -575,7 +601,7 @@ TEMPLATE = """
     </form>
 
     {% if draft_questions %}
-      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below.</p>\n        <form method=\"post\">\n          <input type=\"hidden\" name=\"action\" value=\"answers\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\">Save answers into JSON</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
+      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below. You can also send them back to MedtronicGPT to refresh the JSON with consistent values.</p>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
     {% endif %}
 
     {% if draft %}
@@ -621,11 +647,21 @@ TEMPLATE = """
   <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
+    const answersForm = document.getElementById('answersForm');
     if (mainForm && loading) {
       mainForm.addEventListener('submit', (event) => {
         const submitter = event.submitter;
         const actionValue = submitter ? submitter.value : mainForm.querySelector('input[name="action"]')?.value;
-        if (actionValue === 'build') {
+        if (actionValue === 'build' || actionValue === 'refine') {
+          loading.classList.add('visible');
+        }
+      });
+    }
+    if (answersForm && loading) {
+      answersForm.addEventListener('submit', (event) => {
+        const submitter = event.submitter;
+        const actionValue = submitter ? submitter.value : answersForm.querySelector('input[name="action"]')?.value;
+        if (actionValue === 'refine') {
           loading.classList.add('visible');
         }
       });
