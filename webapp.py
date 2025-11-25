@@ -299,8 +299,8 @@ def index():
                 seed = {
                     "role": "system",
                     "content": (
-                        "You are assisting with Medtronic validation drafting. "
-                        "Ask concise follow-up questions when required inputs are unclear and keep the chat grounded in the uploaded template, examples, and code context."
+                        "You are assisting with Medtronic validation drafting. Answer user questions directly and succinctly using the provided context. "
+                        "Do not invent person names or signatures. If context is missing, ask one concise follow-up question. Avoid returning JSON unless explicitly requested."
                     ),
                 }
                 full_history = [seed]
@@ -620,12 +620,12 @@ TEMPLATE = """
       </div>
     {% endif %}
 
-    <div class=\"card\" style=\"margin-top: 18px;\">
-      <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span><span>Let MedtronicGPT ask for missing details</span></div>
-      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs. The agent will ask concise follow-up questions when something in the template or code is ambiguous.</p>
-      <form method=\"post\" class=\"chat\">
-        <input type=\"hidden\" name=\"action\" value=\"chat\">
-        <input type=\"hidden\" name=\"use_model\" value=\"on\">
+    <div class=\"card\" style=\"margin-top: 18px;\"> 
+      <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span></div>
+      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs. Responses stay grounded in your uploaded template, examples, code context, and the latest answers.</p>
+      <form method=\"post\" class=\"chat\" id=\"chatForm\"> 
+        <input type=\"hidden\" name=\"action\" value=\"chat\"> 
+        <input type=\"hidden\" name=\"use_model\" value=\"on\"> 
         <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">
         <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
         <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
@@ -656,6 +656,7 @@ TEMPLATE = """
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
     const answersForm = document.getElementById('answersForm');
+    const chatForm = document.getElementById('chatForm');
     if (mainForm && loading) {
       mainForm.addEventListener('submit', (event) => {
         const submitter = event.submitter;
@@ -672,6 +673,11 @@ TEMPLATE = """
         if (actionValue === 'refine') {
           loading.classList.add('visible');
         }
+      });
+    }
+    if (chatForm && loading) {
+      chatForm.addEventListener('submit', () => {
+        loading.classList.add('visible');
       });
     }
   </script>
