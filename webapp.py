@@ -487,6 +487,10 @@ TEMPLATE = """
     }
     .card h3 { margin-bottom: 10px; }
     .card p { color: var(--muted); margin: 6px 0 12px; }
+    .section { margin-top: 22px; }
+    .section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+    .section-head h2 { font-size: 22px; margin: 0; }
+    .section-head p { margin: 0; color: var(--muted); }
     .input, textarea, select { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: #f8fafc; color: var(--text); font-size: 14px; }
     .input:focus, textarea:focus, select:focus { outline: 2px solid rgba(37,99,235,0.3); border-color: rgba(37,99,235,0.35); box-shadow: 0 0 0 3px rgba(37,99,235,0.08); }
     textarea { min-height: 110px; resize: vertical; }
@@ -561,7 +565,12 @@ TEMPLATE = """
       <div class=\"error\"><strong>Error:</strong> {{ error }}</div>
     {% endif %}
 
-    <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
+    <div class=\"section\">
+      <div class=\"section-head\">
+        <h2>Inputs</h2>
+        <p>Upload files, context, and connection details before generating answers.</p>
+      </div>
+      <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
       <div class=\"grid\">
@@ -666,75 +675,96 @@ TEMPLATE = """
         <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
       </div>
     </form>
+    </div>
 
     {% if draft_questions %}
-      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below. You can also send them back to MedtronicGPT to refresh the JSON with consistent values.</p>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
+      <div class=\"section\">\n        <div class=\"section-head\">\n          <h2>Follow up Questions from GPT</h2>\n          <p>Answer these to complete missing details.</p>\n        </div>\n        <div class=\"card\" style=\"margin-top: 10px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n       </div>\n        </form>\n      </div>\n      </div>
     {% endif %}
 
     {% if draft %}
-      <div class="card" style="margin-top: 20px;">
-        <div class="tagline"><span class="pill">Generated Answers</span><span>Copy</span></div>
-        <div class="actions" style="margin-top: 8px; gap: 8px;">
-          <div class="pill" id="viewToggleJson" style="cursor: pointer;">JSON view</div>
-          <div class="pill" id="viewToggleFriendly" style="cursor: pointer; background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.3);">Easy view</div>
-          <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
+      <div class="section">
+        <div class="section-head">
+          <h2>Answers</h2>
+          <p>Review and copy all current mappings.</p>
         </div>
-        <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
-        <div id="friendlyView" class="output" style="margin-top: 10px; display: none;"></div>
-        <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of replacements/questions. Use Copy all to grab the current JSON.</p>
+        <div class="card" style="margin-top: 10px;">
+          <div class="tagline"><span class="pill">Generated Answers</span><span>Copy</span></div>
+          <div class="actions" style="margin-top: 8px; gap: 8px;">
+            <div class="pill" id="viewToggleJson" style="cursor: pointer;">JSON view</div>
+            <div class="pill" id="viewToggleFriendly" style="cursor: pointer; background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.3);">Easy view</div>
+            <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
+          </div>
+          <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
+          <div id="friendlyView" class="output" style="margin-top: 10px; display: none;"></div>
+          <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of replacements/questions. Use Copy all to grab the current JSON.</p>
+        </div>
       </div>
     {% endif %}
 
+
     {% if template_text and (draft or draft_json) %}
-      <div class=\"card\" style=\"margin-top: 18px;\">
-        <div class=\"tagline\"><span class=\"pill\">Coverage check</span><span>Template placeholders</span></div>
+      <div class="section">
+        <div class="section-head">
+          <h2>Coverage</h2>
+          <p>See which template tokens still need answers.</p>
+        </div>
+        <div class="card" style="margin-top: 10px;">
+        <div class="tagline"><span class="pill">Coverage check</span><span>Template placeholders</span></div>
         {% if missing_placeholders %}
-          <p style=\"margin: 6px 0 10px; color: #475569;\">These placeholders still need answers:</p>
-          <ul style=\"margin: 0; padding-left: 18px; color: #0f172a;\">
+          <p style="margin: 6px 0 10px; color: #475569;">These placeholders still need answers:</p>
+          <ul style="margin: 0; padding-left: 18px; color: #0f172a;">
             {% for token in missing_placeholders %}
               <li>{{ token }}</li>
             {% endfor %}
           </ul>
         {% else %}
-          <p style=\"margin: 6px 0 0; color: #0f172a;\">All detected placeholders have values based on the current answers.</p>
+          <p style="margin: 6px 0 0; color: #0f172a;">All detected placeholders have values based on the current answers.</p>
         {% endif %}
+      </div>
+      </div>
+    {% endif %}
       </div>
     {% endif %}
 
-    <div class=\"card\" style=\"margin-top: 18px;\"> 
-      <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span></div>
-      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs. Responses stay grounded in your uploaded template, examples, code context, and the latest answers.</p>
-      <form method=\"post\" class=\"chat\" id=\"chatForm\"> 
-        <input type=\"hidden\" name=\"action\" value=\"chat\"> 
-        <input type=\"hidden\" name=\"use_model\" value=\"on\"> 
-        <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">
-        <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
-        <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
-        <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
-        <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
-        <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
-        <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
-        <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
-        <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
-        <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>
-        <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
 
-        <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"min-height: 80px;\"></textarea>
-        <div class=\"actions\" style=\"margin-top: 10px;\">
-          <button class=\"btn btn-ghost\" type=\"submit\">Send</button>
-          <div class=\"pill\">Chat stays aligned to your uploaded context.</div>
-        </div>
-      </form>
+    <div class="section" style="margin-bottom: 12px;">
+      <div class="section-head">
+        <h2>Ask Clarifying Questions and Refine Answers</h2>
+        <p>Chat stays grounded in your uploaded context and current answers.</p>
+      </div>
+      <div class="card" style="margin-top: 10px;">
+        <div class="tagline"><span class="pill">Clarify or refine</span></div>
+        <form method="post" class="chat" id="chatForm">
+          <input type="hidden" name="action" value="chat">
+          <input type="hidden" name="use_model" value="on">
+          <input type="hidden" name="model" value="{{ defaults.model }}">
+          <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
+          <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
+          <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
+          <input type="hidden" name="subscription_key" value="{{ stored.subscription_key }}">
+          <input type="hidden" name="api_token" value="{{ stored.api_token }}">
+          <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
+          <input type="hidden" name="plan_text" value="{{ plan_text }}">
+          <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
+          <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
+          <input type="hidden" name="history_json" value='{{ history | tojson }}'>
 
-      {% if history %}
-        <div class=\"output\" style=\"margin-top: 12px;\">
-          {% for message in history %}
-            <div style=\"margin-bottom: 8px;\"><strong>{{ message.role|capitalize }}:</strong> {{ message.content }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
+          <textarea name="chat_input" placeholder="Ask a question or request edits..." style="min-height: 80px;"></textarea>
+          <div class="actions" style="margin-top: 10px;">
+            <button class="btn btn-ghost" type="submit">Send</button>
+            <div class="pill">Chat stays aligned to your uploaded context.</div>
+          </div>
+        </form>
+
+        {% if history %}
+          <div class="output" style="margin-top: 12px;">
+            {% for message in history %}
+              <div style="margin-bottom: 8px;"><strong>{{ message.role|capitalize }}:</strong> {{ message.content }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
     </div>
-  </div>
   <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
