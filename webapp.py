@@ -701,6 +701,32 @@ TEMPLATE = """
     const toggleFriendly = document.getElementById('viewToggleFriendly');
     const copyAll = document.getElementById('copyAll');
 
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function formatValue(value, depth = 0) {
+      if (value === null || value === undefined || value === '') return '<span style="color:#94a3b8;">(empty)</span>';
+      if (Array.isArray(value)) {
+        const items = value
+          .map((entry) => `<li>${formatValue(entry, depth + 1)}</li>`)
+          .join('');
+        return `<ul>${items}</ul>`;
+      }
+      if (typeof value === 'object') {
+        const entries = Object.entries(value)
+          .map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong>: ${formatValue(v, depth + 1)}</li>`)
+          .join('');
+        return `<ul>${entries}</ul>`;
+      }
+      return escapeHtml(value);
+    }
+
     function renderFriendly() {
       if (!friendlyView || rawDraft === null) return;
       let parsed;
@@ -712,23 +738,23 @@ TEMPLATE = """
       }
 
       const placeholders = parsed.placeholders && typeof parsed.placeholders === 'object'
-        ? Object.entries(parsed.placeholders).filter(([, v]) => String(v || '').trim())
+        ? Object.entries(parsed.placeholders).filter(([, v]) => String(v ?? '').trim() || typeof v === 'object')
         : [];
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
       const questions = Array.isArray(parsed.questions) ? parsed.questions.filter(q => String(q || '').trim()) : [];
 
       const sections = [];
       if (placeholders.length) {
-        const list = placeholders.map(([k, v]) => `<li><strong>${k}</strong>: ${v}</li>`).join('');
+        const list = placeholders.map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong>: ${formatValue(v)}</li>`).join('');
         sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Placeholders</div><ul>${list}</ul></div>`);
       }
       if (answers.length) {
         const list = answers.map((item) => {
           if (item.placeholder && item.replacement !== undefined) {
-            return `<li><strong>${item.placeholder}</strong> → ${item.replacement}</li>`;
+            return `<li><strong>${escapeHtml(item.placeholder)}</strong> → ${formatValue(item.replacement)}</li>`;
           }
           if (item.question && item.answer) {
-            return `<li><strong>${item.question}</strong> → ${item.answer}</li>`;
+            return `<li><strong>${escapeHtml(item.question)}</strong> → ${formatValue(item.answer)}</li>`;
           }
           return '';
         }).filter(Boolean).join('');
@@ -737,7 +763,7 @@ TEMPLATE = """
         }
       }
       if (questions.length) {
-        const list = questions.map((q) => `<li>${q}</li>`).join('');
+        const list = questions.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
         sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Questions</div><ul>${list}</ul></div>`);
       }
 
