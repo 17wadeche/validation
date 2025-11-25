@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import base64
 import json
-import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from flask import Flask, render_template_string, request, send_file
+from flask import Flask, render_template_string, request
 
 from src.validation_agent.prompt_builder import Example, build_planning_prompt, build_prompt
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
-from src.validation_agent.docx_utils import DocxExportError, draft_to_docx_bytes
 from src.validation_agent.storage import (
     SavedInputs,
     StoredFile,
@@ -145,7 +142,6 @@ def index():
     plan_text: str = ""
     draft_questions: List[str] = []
     template_bytes: Optional[bytes] = None
-    docx_b64: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
 
@@ -173,6 +169,7 @@ def index():
                 kept_saved_examples.append(saved_example)
 
         plan_text = request.form.get("plan_text", "")
+        remember_credentials = request.form.get("remember_credentials") == "on"
 
         (
             prompt,
@@ -209,17 +206,16 @@ def index():
                 refresh_token=request.form.get("refresh_token", "").strip(),
             )
 
-            if request.form.get("remember_credentials") == "on":
-                save_credentials(
-                    StoredCredentials(
-                        subscription_key=request.form.get("subscription_key", "").strip(),
-                        api_token=request.form.get("api_token", "").strip(),
-                        refresh_token=request.form.get("refresh_token", "").strip(),
-                        api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
-                        base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
-                        path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
-                    )
+            if remember_credentials:
+                stored = StoredCredentials(
+                    subscription_key=request.form.get("subscription_key", "").strip(),
+                    api_token=request.form.get("api_token", "").strip(),
+                    refresh_token=request.form.get("refresh_token", "").strip(),
+                    api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
+                    base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
+                    path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
                 )
+                save_credentials(stored)
 
         history_json = request.form.get("history_json", "[]")
         try:
@@ -257,46 +253,6 @@ def index():
                     error = str(exc)
         elif action == "chat" and not client:
             error = "Provide MedtronicGPT credentials to chat."
-        elif action == "download":
-            draft_text = request.form.get("draft_text", "")
-            filename = request.form.get("filename", "validation_draft.docx") or "validation_draft.docx"
-            encoded_docx = request.form.get("docx_b64", "")
-            encoded_template = request.form.get("template_b64", "")
-            if encoded_docx:
-                try:
-                    docx_bytes = base64.b64decode(encoded_docx)
-                except Exception:
-                    docx_bytes = None
-                else:
-                    buffer = tempfile.SpooledTemporaryFile()
-                    buffer.write(docx_bytes)
-                    buffer.seek(0)
-                    return send_file(
-                        buffer,
-                        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        download_name=filename,
-                        as_attachment=True,
-                    )
-
-            if encoded_template and not template_bytes:
-                try:
-                    template_bytes = base64.b64decode(encoded_template)
-                except Exception:
-                    template_bytes = None
-            try:
-                docx_bytes = draft_to_docx_bytes(draft_text, template_bytes=template_bytes)
-            except DocxExportError as exc:
-                error = str(exc)
-            else:
-                buffer = tempfile.SpooledTemporaryFile()
-                buffer.write(docx_bytes)
-                buffer.seek(0)
-                return send_file(
-                    buffer,
-                    mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    download_name=filename,
-                    as_attachment=True,
-                )
         elif action == "build" and client:
             if not plan_text.strip():
                 planning_prompt = build_planning_prompt(
@@ -312,11 +268,7 @@ def index():
                 try:
                     draft = client.generate_completion(prompt, model=model)
                     draft_questions = _extract_questions_from_json(draft)
-                    docx_bytes = draft_to_docx_bytes(draft, template_bytes=template_bytes)
-                    docx_b64 = base64.b64encode(docx_bytes).decode("utf-8")
                 except MedtronicGPTError as exc:
-                    error = str(exc)
-                except DocxExportError as exc:
                     error = str(exc)
 
         if request.form.get("remember_inputs") == "on":
@@ -324,6 +276,17 @@ def index():
             final_examples = stored_examples
         persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
         save_inputs(persisted_inputs)
+
+        if client and client.last_refresh and remember_credentials:
+            stored = StoredCredentials(
+                subscription_key=client.subscription_key,
+                api_token=client.api_token,
+                refresh_token=client.refresh_token,
+                api_version=client.api_version,
+                base_url=client.base_url,
+                path_template=client.path_template,
+            )
+            save_credentials(stored)
 
     return render_template_string(
         TEMPLATE,
@@ -336,12 +299,6 @@ def index():
         saved_inputs=persisted_inputs,
         plan_text=plan_text,
         draft_questions=draft_questions,
-        docx_b64=docx_b64,
-        template_b64=base64.b64encode(template_bytes).decode("utf-8")
-        if template_bytes
-        else (
-            persisted_inputs.template.b64 if persisted_inputs.template else ""
-        ),
     )
 
 
@@ -534,27 +491,16 @@ TEMPLATE = """
     {% endif %}
 
     {% if draft %}
-      <div class=\"card\" style=\"margin-top: 20px;\">
-        <div class=\"tagline\"><span class=\"pill\">Generated Answers</span><span>Copy into your template or download with replacements</span></div>
-        <div class=\"output\" style=\"margin-top: 10px; white-space: pre-wrap;\">{{ draft }}</div>
-        <p style=\"margin: 10px 0 0; color: #475569;\">Download always reuses your uploaded template; the JSON includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly.</p>
-        <form method=\"post\" class=\"actions\" style=\"margin-top: 12px; align-items: flex-end;\">
-          <input type=\"hidden\" name=\"action\" value=\"download\">
-          <input type=\"hidden\" name=\"draft_text\" value=\"{{ draft }}\">
-          <input type=\"hidden\" name=\"docx_b64\" value=\"{{ docx_b64 or '' }}\">
-          <input type=\"hidden\" name=\"template_b64\" value=\"{{ template_b64 }}\">
-          <div style=\"flex: 1; min-width: 220px;\">
-            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Word file name</label>
-            <input class=\"input\" type=\"text\" name=\"filename\" value=\"validation_draft.docx\">
-          </div>
-          <button class=\"btn btn-primary\" type=\"submit\">Download as Word</button>
-        </form>
+      <div class="card" style="margin-top: 20px;">
+        <div class="tagline"><span class="pill">Generated Answers</span><span>Copy into your template</span></div>
+        <div class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
+        <p style="margin: 10px 0 0; color: #475569;">The JSON includes `placeholders`, `answers`, and any remaining `questions` so you can paste values directly into the template you uploaded.</p>
       </div>
     {% endif %}
 
     <div class=\"card\" style=\"margin-top: 18px;\">
       <div class=\"tagline\"><span class=\"pill\">Clarify or refine</span><span>Let MedtronicGPT ask for missing details</span></div>
-      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs before downloading. The agent will ask concise follow-up questions when something in the template or code is ambiguous.</p>
+      <p style=\"margin-top: 8px;\">Use chat to resolve unclear inputs. The agent will ask concise follow-up questions when something in the template or code is ambiguous.</p>
       <form method=\"post\" class=\"chat\">
         <input type=\"hidden\" name=\"action\" value=\"chat\">
         <input type=\"hidden\" name=\"use_model\" value=\"on\">

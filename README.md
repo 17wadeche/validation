@@ -29,10 +29,10 @@ Prompts are assembled internally; the UI surfaces only the generated output. Pro
 
 ## Web UI with MedtronicGPT
 
-1. Install UI dependencies (for Word export):
+1. Install UI dependencies:
 
 ```bash
-pip install flask python-docx
+pip install flask  # add python-docx if you plan to use the CLI Word export
 ```
 
 2. Start the UI server (it now binds to `127.0.0.1` by default to avoid internet scanners hitting the dev server; set `VALIDATION_UI_HOST=0.0.0.0` only if you intentionally need remote access):
@@ -45,9 +45,10 @@ python webapp.py
 
    - Saved credentials live at `~/.validation_agent/credentials.json` for reuse in both drafting and chat.
    - Saved templates/examples live at `~/.validation_agent/inputs.json`. If you leave the upload fields empty on a later visit, the stored template/examples are preselected automatically; uncheck the saved file rows to drop them or upload replacements to overwrite.
-- After a draft is generated, you can download it as a Word document directly from the UI; when you upload a Word template, the download reuses that template as the base document to preserve tables, charts, and formatting. **Word downloads require a `.docx` template**—if you upload a PDF template, the request will succeed for prompt generation but the download step will ask you to provide a Word template (or leave it blank for a plain export). The model is asked to return a JSON payload with a `placeholders` map plus an `answers` array (and optional `questions` for anything still missing). The `answers` list now **maps each blue/instructional template string or `<token>` to the exact text you should type (or “delete” when it should be removed)**—no full draft text is required. The exporter still uses the map to swap inline tokens (e.g., `<Tool Name>`, `<#.#.#>`, underscores) in-place and only inserts a full narrative when no placeholders can be replaced—preventing duplicate content. Blue placeholder text inside the template is replaced in place—even when the color comes from theme accents, custom hex values, paragraph/run styles, highlight colors, or style-level placeholder names—so tables and inline formatting remain intact. Explicit placeholders `[[GENERATED_DRAFT]]`, `<GENERATED_DRAFT>`, or `{GENERATED_DRAFT}` are also honored. Footers are left unchanged. Template instructions that match the Medtronic purpose statement samples (e.g., the “Assurance (standard deliverables) sample purpose statement…” and “Validation (enhanced deliverables) sample purpose statement…” language) are also treated as placeholders and replaced directly inside the template. PDF templates and examples are supported too (install optional `pypdf` to ingest PDF content).
-   - Template guidance paragraphs that match the long “Blue text is included for reference…” instruction block are stripped automatically so they do not appear in downloads. The exporter also pulls the generated purpose paragraph from the draft JSON and swaps it in place of the Medtronic sample purpose statements, ensuring the template retains its original formatting while showing the right purpose text exactly once.
-   - The Generated Draft section shows the JSON answers directly while downloads always reuse your uploaded template. Any `questions` returned in the JSON are pulled out and displayed in their own card so you can respond inline via chat without digging through the raw JSON. The planning step still runs in the background, but its detailed output stays hidden to reduce clutter.
+   - The client automatically refreshes your `api-token` using the `refresh-token` when MedtronicGPT returns unauthorized responses, and updated tokens are saved when credential persistence is enabled.
+   - After a draft is generated, the UI shows the JSON `placeholders`, `answers`, and any remaining `questions`. Copy the suggested replacements into your uploaded template; Word downloads are disabled for now. PDF templates and examples are still supported for prompt generation (install optional `pypdf` to ingest PDF content).
+   - Template guidance paragraphs that match the long “Blue text is included for reference…” block and the Medtronic sample purpose statement bullets are treated as placeholders in the returned answers so you know what to delete or replace in the template.
+   - Any `questions` returned in the JSON are pulled out and displayed in their own card so you can respond inline via chat without digging through the raw JSON. The planning step still runs in the background, but its detailed output stays hidden to reduce clutter.
    - Use the **Clarify or refine via chat** panel to ask MedtronicGPT follow-up questions when a template field or code behavior is unclear. The chat reuses the saved credentials and keeps conversation history in the page.
 
 Draft responses carry a `placeholders` map **and a detailed `answers` list that spells out, for every blue instruction or `<token>`, exactly what to type (or delete) and where to place it**—only placeholder text should change while headings, bullets, tables, and formatting remain intact. The agent fills every placeholder it can using the provided template, examples, and code before requesting anything else; if details are still missing, it includes concise follow-up questions alongside the answers instead of withholding them.
