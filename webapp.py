@@ -148,6 +148,7 @@ def index():
     plan_text: str = ""
     draft_questions: List[str] = []
     template_bytes: Optional[bytes] = None
+    code_context_text: str = ""
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
@@ -200,6 +201,7 @@ def index():
             kept_saved_examples,
             plan_text,
         )
+        code_context_text = code_context
         if not template_bytes and keep_saved_template and stored_inputs.template:
             try:
                 template_bytes = stored_inputs.template.to_bytes()
@@ -382,6 +384,8 @@ def index():
         saved_inputs=persisted_inputs,
         plan_text=plan_text,
         draft_questions=draft_questions,
+        code_context=code_context_text,
+        draft_json=draft_json_from_form,
     )
 
 
@@ -505,6 +509,7 @@ TEMPLATE = """
 
     <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
+      <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
       <div class=\"grid\">
         <div class=\"card\">
           <div class=\"tagline\"><span class=\"pill\">Template</span><span>Upload the source file to preserve layout</span></div>
@@ -548,7 +553,7 @@ TEMPLATE = """
             <input class=\"input\" type=\"file\" name=\"code_files\" multiple>
           </div>
           <div style=\"margin-top: 10px;\">
-            <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\"></textarea>
+            <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\">{{ code_context }}</textarea>
           </div>
         </div>
 
@@ -609,7 +614,7 @@ TEMPLATE = """
     </form>
 
     {% if draft_questions %}
-      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below. You can also send them back to MedtronicGPT to refresh the JSON with consistent values.</p>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
+      <div class=\"card\" style=\"margin-top: 18px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <p style=\"margin: 8px 0; color: #475569;\">Your answers will be merged into the generated JSON below. You can also send them back to MedtronicGPT to refresh the JSON with consistent values.</p>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n          </div>\n        </form>\n        <p style=\"margin: 6px 0 0; color: #475569;\">Use chat below if you prefer a conversational follow-up.</p>\n      </div>
     {% endif %}
 
     {% if draft %}
@@ -634,6 +639,8 @@ TEMPLATE = """
         <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">
         <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
         <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
+        <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
+        <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>
         <input type=\"hidden\" name=\"history_json\" value='{{ history | tojson }}'>
 
         <textarea name=\"chat_input\" placeholder=\"Ask a question or request edits...\" style=\"min-height: 80px;\"></textarea>
