@@ -696,7 +696,7 @@ TEMPLATE = """
           </div>
           <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
           <div id="friendlyView" class="output" style="margin-top: 10px; display: none;"></div>
-          <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of replacements/questions. Use Copy all to grab the current JSON.</p>
+          <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of answers. Use Copy all to grab the current JSON.</p>
         </div>
       </div>
     {% endif %}
@@ -852,18 +852,9 @@ TEMPLATE = """
         return;
       }
 
-      const placeholders = parsed.placeholders && typeof parsed.placeholders === 'object'
-        ? Object.entries(parsed.placeholders).filter(([, v]) => String(v ?? '').trim() || typeof v === 'object')
-        : [];
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
-      const questions = Array.isArray(parsed.questions) ? parsed.questions.filter(q => String(q || '').trim()) : [];
-      const coverage = parsed.coverage && typeof parsed.coverage === 'object' ? parsed.coverage : null;
 
       const sections = [];
-      if (placeholders.length) {
-        const list = placeholders.map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong>: ${formatValue(v)}</li>`).join('');
-        sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Placeholders</div><ul>${list}</ul></div>`);
-      }
       if (answers.length) {
         const list = answers.map((item) => {
           if (item.placeholder && item.replacement !== undefined) {
@@ -878,26 +869,8 @@ TEMPLATE = """
           sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
         }
       }
-      if (questions.length) {
-        const list = questions.map((q) => `<li>${escapeHtml(q)}</li>`).join('');
-        sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Questions</div><ul>${list}</ul></div>`);
-      }
-      if (coverage) {
-        const missingTokens = Array.isArray(coverage.missing_tokens) ? coverage.missing_tokens : [];
-        const unmappedSections = Array.isArray(coverage.unmapped_sections) ? coverage.unmapped_sections : [];
-        const parts = [];
-        if (missingTokens.length) {
-          parts.push(`<div style="margin-bottom:6px;"><strong>Missing tokens</strong><ul>${missingTokens.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul></div>`);
-        }
-        if (unmappedSections.length) {
-          parts.push(`<div><strong>Unmapped sections</strong><ul>${unmappedSections.map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul></div>`);
-        }
-        if (parts.length) {
-          sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Coverage</div>${parts.join('')}</div>`);
-        }
-      }
 
-      friendlyView.innerHTML = sections.join('') || 'No parsed placeholders or answers available.';
+      friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
     }
 
     if (toggleJson && toggleFriendly && jsonView && friendlyView) {
