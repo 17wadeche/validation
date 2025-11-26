@@ -929,6 +929,17 @@ TEMPLATE = """
     const releaseValue = '{{ release_type }}';
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
+    const rememberInputs = document.querySelector('input[name="remember_inputs"]');
+
+    function submitWithAction(actionValue) {
+      if (!mainForm) return;
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'action';
+      hidden.value = actionValue;
+      mainForm.appendChild(hidden);
+      mainForm.submit();
+    }
 
     let answersReleaseInput = null;
     let chatReleaseInput = null;
@@ -957,6 +968,8 @@ TEMPLATE = """
     if (clearTemplateBtn && removeTemplate) {
       clearTemplateBtn.addEventListener('click', () => {
         removeTemplate.checked = true;
+        if (rememberInputs) rememberInputs.checked = true;
+        submitWithAction('clear_saved');
       });
     }
 
@@ -966,6 +979,8 @@ TEMPLATE = """
         document.querySelectorAll('input[id^="keep_example_"]').forEach((cb) => {
           cb.checked = false;
         });
+        if (rememberInputs) rememberInputs.checked = true;
+        submitWithAction('clear_saved');
       });
     }
 
