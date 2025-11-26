@@ -967,12 +967,29 @@ if __name__ == "__main__":
     # Bind to loopback by default so the dev server is not exposed to the network unless explicitly
     # configured. Override via VALIDATION_UI_HOST/VALIDATION_UI_PORT when remote access is required.
     import os
+    import socket
     import threading
     import time
     import webbrowser
 
+    def _find_open_port(host: str, preferred: int) -> int:
+        """Return the preferred port if available, otherwise the next free port."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, preferred))
+                return preferred
+            except OSError:
+                pass
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, 0))
+            return s.getsockname()[1]
+
     host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
-    port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
+    requested_port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
+    port = _find_open_port(host, requested_port)
 
     def _open_browser() -> None:
         # Small delay to allow the server to start before opening the browser.

@@ -76,11 +76,11 @@ If colleagues don’t have Python installed, you can hand them a single executab
    py packaging\build_exe.py
    ```
 
-3. Share `dist\validation-ui.exe` (and any template/example files). Recipients double-click the EXE; it starts the local server and opens `http://127.0.0.1:8000` in their browser. No separate Python setup is required.
+3. Share `dist\validation-ui.exe` (and any template/example files). Recipients double-click the EXE; it starts the local server, automatically opens the browser, and picks the next open port if `8000` is in use on their machine. No separate Python setup is required.
 
 Tips:
 - Keep the EXE and any saved templates/examples in the same folder when sharing to simplify hand-off.
-- If the EXE is blocked by Windows SmartScreen, users can choose “More info” → “Run anyway” (the binary is unsigned). The app still runs only on localhost by default.
+- If the EXE is blocked by Windows SmartScreen, users can choose “More info” → “Run anyway” (the binary is unsigned). The app still runs only on localhost by default; if port 8000 is taken, it selects a free port automatically and opens the browser to that address.
 
 ## Notes on compilation check
 
