@@ -209,7 +209,7 @@ def _build_prompt_from_request(
     if not template_text and selected_template:
         template_text, template_bytes, _, template_name = _read_saved_file(selected_template)
 
-    if template_text and template_bytes is not None and template_name:
+    if template_bytes is not None and template_name:
         stored_template = StoredFile.from_bytes(template_name, template_bytes)
 
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
@@ -517,12 +517,14 @@ def index():
 
         if request.form.get("remember_inputs") == "on":
             if stored_template:
-                final_templates = _dedupe_by_name(final_templates + [stored_template])
+                final_templates = _dedupe_by_name([stored_template] + final_templates)
             if clear_saved_examples:
                 final_examples = stored_examples
             else:
                 final_examples = kept_saved_examples + stored_examples
         persisted_inputs = SavedInputs(templates=final_templates, examples=final_examples)
+        if not selected_template_name and persisted_inputs.templates:
+            selected_template_name = persisted_inputs.templates[0].name
         save_inputs(persisted_inputs)
 
         if client and client.last_refresh and remember_credentials:
@@ -735,7 +737,6 @@ TEMPLATE = """
                     <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
                   {% endfor %}
                 </select>
-                <input type="hidden" name="clear_templates" id="clear_templates" value="">
                 <div class="stack" style="gap: 6px;">
                   {% for tmpl in saved_inputs.templates %}
                     <div class="tag-row" style="justify-content:flex-start; gap:6px;">
@@ -743,7 +744,6 @@ TEMPLATE = """
                       <button type="submit" name="remove_template" value="{{ tmpl.name }}" class="btn btn-ghost" style="padding:4px 8px;" title="Remove template">&#8722;</button>
                     </div>
                   {% endfor %}
-                  <button type="button" class="btn btn-ghost" id="clearTemplateBtn">Clear saved templates now</button>
                 </div>
               </div>
             {% endif %}
@@ -990,8 +990,6 @@ TEMPLATE = """
     const chatForm = document.getElementById('chatForm');
     const connectionToggle = document.getElementById('toggle-connection');
     const connectionBody = document.getElementById('connection-body');
-    const clearTemplateBtn = document.getElementById('clearTemplateBtn');
-    const clearTemplates = document.getElementById('clear_templates');
     const clearExamplesBtn = document.getElementById('clearExamplesBtn');
     const clearExamples = document.getElementById('clear_examples');
     const releaseValue = '{{ release_type }}';
@@ -1032,14 +1030,6 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
-
-    if (clearTemplateBtn && clearTemplates) {
-      clearTemplateBtn.addEventListener('click', () => {
-        clearTemplates.value = 'on';
-        if (rememberInputs) rememberInputs.checked = true;
-        submitWithAction('clear_saved');
-      });
-    }
 
     if (clearExamplesBtn && clearExamples) {
       clearExamplesBtn.addEventListener('click', () => {
