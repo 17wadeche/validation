@@ -274,6 +274,7 @@ def index():
 
     if request.method == "POST":
         draft_json_from_form = request.form.get("draft_json", "")
+        remove_template_name = request.form.get("remove_template", "").strip()
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
         clear_saved_examples = request.form.get("clear_examples") == "on"
@@ -304,6 +305,44 @@ def index():
         plan_text = request.form.get("plan_text", "")
         remember_credentials = request.form.get("remember_credentials") == "on"
         release_type = request.form.get("release_type", "initial") or "initial"
+        history_json = request.form.get("history_json", "[]")
+        code_context_text = request.form.get("code_context", "")
+        try:
+            history = json.loads(history_json) if history_json else []
+        except json.JSONDecodeError:
+            history = []
+
+        action = request.form.get("action", "build")
+        if remove_template_name:
+            action = "remove_template"
+
+        if action == "remove_template":
+            updated_templates = [
+                tmpl for tmpl in stored_inputs.templates if tmpl.name != remove_template_name
+            ]
+            persisted_inputs = SavedInputs(templates=updated_templates, examples=stored_inputs.examples)
+            save_inputs(persisted_inputs)
+            stored_inputs = persisted_inputs
+            selected_template_name = updated_templates[0].name if updated_templates else ""
+            draft = draft_json_from_form or draft
+            draft_questions = _extract_questions_from_json(draft) if draft else []
+            return render_template_string(
+                TEMPLATE,
+                prompt=prompt,
+                draft=draft,
+                error=error,
+                defaults=defaults,
+                history=history,
+                stored=stored,
+                saved_inputs=persisted_inputs,
+                plan_text=plan_text,
+                draft_questions=draft_questions,
+                draft_json=draft_json_from_form,
+                code_context=code_context_text,
+                release_type=release_type,
+                selected_template_name=selected_template_name,
+                missing_placeholders=missing_placeholders,
+            )
 
         (
             prompt,
@@ -329,7 +368,6 @@ def index():
                 template_bytes = selected_template_file.to_bytes()
             except Exception:
                 template_bytes = None
-        action = request.form.get("action", "build")
 
         client = None
         model = request.form.get("model", "").strip() or defaults["model"]
@@ -353,12 +391,6 @@ def index():
                     path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
                 )
                 save_credentials(stored)
-
-        history_json = request.form.get("history_json", "[]")
-        try:
-            history = json.loads(history_json) if history_json else []
-        except json.JSONDecodeError:
-            history = []
 
         if action in {"answers", "refine"}:
             answered = []
@@ -689,7 +721,7 @@ TEMPLATE = """
       <div class=\"section-body\">
         <div class="panel" data-step="Step 1">
           <h3>Template & release</h3>
-          <p>Pick a saved template or upload a new one, then choose the release type.</p>
+          <p>Pick a template (saved or new), then choose the release type.</p>
           <div class="stack">
             <div>
               <label class="muted" style="font-weight:600;">Upload template</label>
@@ -697,18 +729,21 @@ TEMPLATE = """
             </div>
             {% if saved_inputs.templates %}
               <div class="stack" style="gap: 8px;">
-                <label class="muted" style="font-weight:600;">Saved templates</label>
+                <label class="muted" style="font-weight:600;">Select template</label>
                 <select class="input" name="selected_template">
+                  <option value="" {% if not selected_template_name %}selected{% endif %}>Use newly uploaded template</option>
                   {% for tmpl in saved_inputs.templates %}
                     <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
                   {% endfor %}
-                  <option value="" {% if not selected_template_name %}selected{% endif %}>Use newly uploaded template</option>
                 </select>
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                  <label class="checkbox">
-                    <input type="checkbox" name="clear_templates" id="clear_templates">
-                    <span>Forget all saved templates after this run</span>
-                  </label>
+                <input type="hidden" name="clear_templates" id="clear_templates" value="">
+                <div class="stack" style="gap: 6px;">
+                  {% for tmpl in saved_inputs.templates %}
+                    <div class="tag-row" style="justify-content:flex-start; gap:6px;">
+                      <span class="pill">{{ tmpl.name }}</span>
+                      <button type="submit" name="remove_template" value="{{ tmpl.name }}" class="btn btn-ghost" style="padding:4px 8px;" title="Remove template">&#8722;</button>
+                    </div>
+                  {% endfor %}
                   <button type="button" class="btn btn-ghost" id="clearTemplateBtn">Clear saved templates now</button>
                 </div>
               </div>
@@ -1001,7 +1036,7 @@ TEMPLATE = """
 
     if (clearTemplateBtn && clearTemplates) {
       clearTemplateBtn.addEventListener('click', () => {
-        clearTemplates.checked = true;
+        clearTemplates.value = 'on';
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('clear_saved');
       });
