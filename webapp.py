@@ -280,7 +280,7 @@ def index():
             keep_flag = request.form.get(f"keep_example_{idx}")
             if clear_saved_examples:
                 continue
-            if keep_flag is None or keep_flag == "on":
+            if keep_flag == "on":
                 kept_saved_examples.append(saved_example)
 
         # defaults in case inputs are not being remembered
@@ -546,6 +546,8 @@ TEMPLATE = """
     .badge { padding: 8px 12px; border-radius: 999px; background: linear-gradient(120deg, rgba(34, 211, 238, 0.15), rgba(37, 99, 235, 0.14)); color: var(--accent); font-weight: 600; font-size: 14px; }
     .subtitle { color: var(--muted); margin-top: 10px; line-height: 1.5; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 16px; }
+    .inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; margin-top: 16px; }
+    .stack { display: flex; flex-direction: column; gap: 12px; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -553,6 +555,11 @@ TEMPLATE = """
       padding: 20px;
       box-shadow: var(--shadow);
     }
+    .card-title { font-weight: 700; font-size: 17px; color: var(--text); }
+    .muted { color: var(--muted); }
+    .tag-row { display: flex; align-items: center; gap: 8px; }
+    .pill-old { background: rgba(59,130,246,0.1); color: #2563eb; border-color: rgba(59,130,246,0.35); }
+    .pill-new { background: rgba(16,185,129,0.1); color: #059669; border-color: rgba(16,185,129,0.3); }
     .card h3 { margin-bottom: 10px; }
     .card p { color: var(--muted); margin: 6px 0 12px; }
     .section { margin-top: 22px; }
@@ -641,154 +648,152 @@ TEMPLATE = """
       <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
-      <div class=\"grid\">
-        <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">Template</span><span>Upload the source file to preserve layout</span></div>
-          <div style=\"margin-top: 12px;\">
-            <input class=\"input\" type=\"file\" name=\"template_file\">
-          </div>
-          <p style=\"margin: 10px 0 0;\">Blue text and inline tokens like &lt;Tool Name&gt; or ___ are detected and replaced in place using the model's structured response.</p>
-          {% if saved_inputs.template %}
-            <div style=\"margin-top: 12px;\">
-              <label class=\"checkbox\">
-                <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\">
-                <span>Remove saved template ({{ saved_inputs.template.name }})</span>
-              </label>
-              <p style=\"margin: 6px 0 0;\">If you skip an upload, the saved template will be reused.</p>
-            </div>
-          {% endif %}
-        </div>
 
-        <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">Release</span><span>Tell the agent if this is brand new or an update</span></div>
-          <div style=\"margin-top: 12px; display: grid; gap: 10px;\">
-            <label class=\"checkbox\">
-              <input type=\"radio\" name=\"release_type\" value=\"initial\" {% if release_type != 'update' %}checked{% endif %}>
-              <span>Initial release (no prior version to compare)</span>
-            </label>
-            <label class=\"checkbox\" style=\"align-items:flex-start;\">
-              <input type=\"radio\" name=\"release_type\" value=\"update\" {% if release_type == 'update' %}checked{% endif %}>
-              <span>Update/change: upload prior + current code/files so deltas are clear</span>
-            </label>
-            <p style=\"margin: 0; color: #475569;\">For updates, upload old vs new files (comparison slots will appear below) so MedtronicGPT can highlight changes and avoid overwriting unchanged sections.</p>
-          </div>
-        </div>
-
-        <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">Examples</span><span>Upload multiple files to guide tone and structure</span></div>
-          <div style=\"margin-top: 12px;\">
-            <input class=\"input\" type=\"file\" name=\"examples\" multiple>
-          </div>
-          {% if saved_inputs.examples %}
-            <div style=\"margin-top: 12px;\">
-              <div class=\"pill\" style=\"background: rgba(34,211,238,0.1); color: #67e8f9; border-color: rgba(34,211,238,0.4);\">Saved examples</div>
-              {% for example in saved_inputs.examples %}
-                <label class=\"checkbox\" style=\"margin-top: 8px;\">
-                  <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
-                  <span>Reuse {{ example.name }}</span>
+      <div class="inputs-grid">
+        <div class="stack">
+          <div class="card">
+            <div class="card-title">Template</div>
+            <p class="muted">Upload your template to preserve tables, colors, and placeholder text.</p>
+            <input class="input" type="file" name="template_file">
+            {% if saved_inputs.template %}
+              <div style="margin-top: 10px;">
+                <label class="checkbox">
+                  <input type="checkbox" name="remove_template" id="remove_template">
+                  <span>Remove saved template ({{ saved_inputs.template.name }})</span>
                 </label>
-              {% endfor %}
-              <label class=\"checkbox\" style=\"margin-top: 10px;\">
-                <input type=\"checkbox\" name=\"clear_examples\">
-                <span>Clear all saved examples</span>
+                <p class="muted" style="margin-top:6px;">If you skip an upload, the saved template will be reused.</p>
+              </div>
+            {% endif %}
+          </div>
+
+          <div class="card">
+            <div class="card-title">Release type</div>
+            <div style="margin-top: 12px; display: grid; gap: 10px;">
+              <label class="checkbox">
+                <input type="radio" name="release_type" value="initial" {% if release_type != 'update' %}checked{% endif %}>
+                <span>Initial release (default)</span>
               </label>
-              <p style=\"margin: 8px 0 0;\">Uncheck to drop saved examples, or clear everything to start fresh.</p>
+              <label class="checkbox" style="align-items:flex-start;">
+                <input type="radio" name="release_type" value="update" {% if release_type == 'update' %}checked{% endif %}>
+                <span>Update/change: upload prior + current code/files so deltas are clear</span>
+              </label>
+              <p class="muted" style="margin:0;">When set to update, extra slots appear for OLD vs NEW artifacts and the prompt tags them for GPT.</p>
             </div>
-          {% endif %}
+          </div>
+
+          <div class="card">
+            <div class="card-title">Examples</div>
+            <p class="muted">Upload supporting examples to guide tone and structure.</p>
+            <input class="input" type="file" name="examples" multiple>
+            {% if saved_inputs.examples %}
+              <div style="margin-top: 10px;">
+                <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
+                {% for example in saved_inputs.examples %}
+                  <label class="checkbox" style="margin-top: 8px;">
+                    <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
+                    <span>Reuse {{ example.name }}</span>
+                  </label>
+                {% endfor %}
+                <label class="checkbox" style="margin-top: 10px;">
+                  <input type="checkbox" name="clear_examples">
+                  <span>Forget all saved examples after this run</span>
+                </label>
+                <p class="muted" style="margin-top:6px;">Uncheck any item to skip it for this run, or clear everything to start fresh.</p>
+              </div>
+            {% endif %}
+
+            <div class="update-only" style="margin-top: 12px; display:none;">
+              <div class="tag-row">
+                <span class="pill pill-old">OLD</span>
+                <span class="muted" style="margin:0;">Prior version examples</span>
+              </div>
+              <input class="input" type="file" name="examples_old" multiple>
+              <div class="tag-row" style="margin-top: 10px;">
+                <span class="pill pill-new">NEW</span>
+                <span class="muted" style="margin:0;">Current version examples</span>
+              </div>
+              <input class="input" type="file" name="examples_new" multiple>
+              <p class="muted" style="margin-top:6px;">OLD/NEW labels are added in the prompt so GPT keeps the two sets distinct.</p>
+            </div>
+          </div>
         </div>
 
-        <div class=\"card update-only\" style=\"display:none;\">
-          <div class=\"tagline\"><span class=\"pill\">Update artifacts</span><span>Tag old vs new for GPT</span></div>
-          <p style=\"margin: 8px 0 10px; color: #475569;\">For updates, attach prior and current references so the agent can focus on deltas.</p>
-          <div style=\"display: grid; gap: 10px;\">
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Previous version files</label>
-              <input class=\"input\" type=\"file\" name=\"examples_old\" multiple>
+        <div class="stack">
+          <div class="card">
+            <div class="card-title">Code & context</div>
+            <p class="muted">Attach relevant snippets or notes so answers stay anchored to your build.</p>
+            <input class="input" type="file" name="code_files" multiple>
+            <div class="update-only" style="margin-top: 12px; display:none;">
+              <div class="tag-row">
+                <span class="pill pill-old">OLD</span>
+                <span class="muted" style="margin:0;">Previous code or config</span>
+              </div>
+              <input class="input" type="file" name="code_files_old" multiple>
+              <div class="tag-row" style="margin-top: 10px;">
+                <span class="pill pill-new">NEW</span>
+                <span class="muted" style="margin:0;">Updated code or config</span>
+              </div>
+              <input class="input" type="file" name="code_files_new" multiple>
             </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Current version files</label>
-              <input class=\"input\" type=\"file\" name=\"examples_new\" multiple>
+            <div style="margin-top: 10px;">
+              <textarea name="code_context" placeholder="Paste relevant code snippets, configs, and notes...">{{ code_context}}</textarea>
             </div>
           </div>
-        </div>
 
-        <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">Code context</span><span>Provide supporting snippets</span></div>
-          <div style=\"margin-top: 12px;\">
-            <input class=\"input\" type=\"file\" name=\"code_files\" multiple>
-          </div>
-          <div class=\"update-only\" style=\"margin-top: 12px; display:none;\">
-            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Previous code</label>
-            <input class=\"input\" type=\"file\" name=\"code_files_old\" multiple>
-          </div>
-          <div class=\"update-only\" style=\"margin-top: 12px; display:none;\">
-            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Updated code</label>
-            <input class=\"input\" type=\"file\" name=\"code_files_new\" multiple>
-          </div>
-          <div style=\"margin-top: 10px;\">
-            <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\">{{ code_context }}</textarea>
-          </div>
-        </div>
-
-        <div class=\"card\">
-          <div class=\"tagline\"><span class=\"pill\">MedtronicGPT</span><span>Connection is pre-enabled</span><button type=\"button\" class=\"pill\" id=\"toggleModelCard\" style=\"margin-left:auto;\">Hide</button></div>\n          <div id=\"modelCardBody\">
-          <div style=\"margin-top: 12px;\">
-            <label class=\"checkbox\">
-              <input type=\"checkbox\" name=\"use_model\" id=\"use_model\" checked>
-              <span>Generate draft with MedtronicGPT</span>
-            </label>
-          </div>
-          <div class=\"grid\" style=\"grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px;\">
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Model</label>
-              <input class=\"input\" type=\"text\" name=\"model\" value=\"{{ defaults.model }}\">
+          <div class="card">
+            <div class="tagline"><span class="pill">MedtronicGPT</span><span>Connection is pre-enabled</span><button type="button" class="pill" id="toggleModelCard" style="margin-left:auto;">Hide</button></div>
+          <div id="modelCardBody">
+            <div style="margin-top: 12px;">
+              <label class="checkbox">
+                <input type="checkbox" name="use_model" id="use_model" checked>
+                <span>Generate draft with MedtronicGPT</span>
+              </label>
             </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Base URL</label>
-              <input class=\"input\" type=\"text\" name=\"base_url\" value=\"{{ defaults.base_url }}\">
+            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px;">
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Model</label>
+                <input class="input" type="text" name="model" value="{{ defaults.model }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Base URL</label>
+                <input class="input" type="text" name="base_url" value="{{ defaults.base_url }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">API version</label>
+                <input class="input" type="text" name="api_version" value="{{ defaults.api_version }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Completions path</label>
+                <input class="input" type="text" name="path_template" value="{{ defaults.path_template }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Subscription key</label>
+                <input class="input" type="text" name="subscription_key" value="{{ stored.subscription_key }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">API token</label>
+                <input class="input" type="text" name="api_token" value="{{ stored.api_token }}">
+              </div>
+              <div>
+                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Refresh token</label>
+                <input class="input" type="text" name="refresh_token" value="{{ stored.refresh_token }}">
+              </div>
             </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">API version</label>
-              <input class=\"input\" type=\"text\" name=\"api_version\" value=\"{{ defaults.api_version }}\">
+            <div class="actions" style="margin-top: 12px;">
+              <label class="checkbox">
+                <input type="checkbox" name="remember_credentials" id="remember_credentials" checked>
+                <span>Remember credentials on this machine</span>
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" name="remember_inputs" id="remember_inputs" checked>
+                <span>Remember template and examples on this machine</span>
+              </label>
             </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Completions path</label>
-              <input class=\"input\" type=\"text\" name=\"path_template\" value=\"{{ defaults.path_template }}\">
-            </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Subscription key</label>
-              <input class=\"input\" type=\"text\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">
-            </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">API token</label>
-              <input class=\"input\" type=\"text\" name=\"api_token\" value=\"{{ stored.api_token }}\">
-            </div>
-            <div>
-              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Refresh token</label>
-              <input class=\"input\" type=\"text\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">
-            </div>
-          </div>
-          <div class=\"actions\" style=\"margin-top: 12px;\">
-            <label class=\"checkbox\">
-              <input type=\"checkbox\" name=\"remember_credentials\" id=\"remember_credentials\" checked>
-              <span>Remember credentials on this machine</span>
-            </label>
-            <label class=\"checkbox\">
-              <input type=\"checkbox\" name=\"remember_inputs\" id=\"remember_inputs\" checked>
-              <span>Remember template and examples on this machine</span>
-            </label>
           </div>
         </div>
       </div>
 
-      <div class=\"actions\" style=\"margin-top: 18px; gap: 10px;\">
-        <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
-      </div>
-    </form>
-    </div>
-
-    {% if draft_questions %}
-      <div class=\"section\">\n        <div class=\"section-head\">\n          <h2>Follow up Questions from GPT</h2>\n          <p>Answer these to complete missing details.</p>\n        </div>\n        <div class=\"card\" style=\"margin-top: 10px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n       </div>\n        </form>\n      </div>\n      </div>
+      <div class="actions" style="margin-top: 18px; gap: 10px;">\n        </div>\n        <div class=\"card\" style=\"margin-top: 10px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n       </div>\n        </form>\n      </div>\n      </div>
     {% endif %}
 
     {% if draft %}
