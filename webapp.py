@@ -793,8 +793,36 @@ TEMPLATE = """
         </div>
       </div>
 
-      <div class="actions" style="margin-top: 18px; gap: 10px;">\n        </div>\n        <div class=\"card\" style=\"margin-top: 10px;\">\n        <div class=\"tagline\"><span class=\"pill\">Questions to answer</span><span>Fill these in to update the JSON</span></div>\n        <form method=\"post\" id=\"answersForm\">\n          <textarea name=\"draft_json\" style=\"display:none;\">{{ draft }}</textarea>\n          <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">\n          <textarea name=\"code_context\" style=\"display:none;\">{{ code_context }}</textarea>\n          <input type=\"hidden\" name=\"use_model\" value=\"on\">\n          <input type=\"hidden\" name=\"model\" value=\"{{ defaults.model }}\">\n          <input type=\"hidden\" name=\"base_url\" value=\"{{ defaults.base_url }}\">\n          <input type=\"hidden\" name=\"api_version\" value=\"{{ defaults.api_version }}\">\n          <input type=\"hidden\" name=\"path_template\" value=\"{{ defaults.path_template }}\">\n          <input type=\"hidden\" name=\"subscription_key\" value=\"{{ stored.subscription_key }}\">\n          <input type=\"hidden\" name=\"api_token\" value=\"{{ stored.api_token }}\">\n          <input type=\"hidden\" name=\"refresh_token\" value=\"{{ stored.refresh_token }}\">\n          {% for q in draft_questions %}\n            <div style=\"margin-top: 12px;\">\n              <div class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Question {{ loop.index }}</div>\n              <div style=\"margin-bottom: 6px; color: #0f172a;\">{{ q }}</div>\n              <textarea name=\"answer_{{ loop.index0 }}\" placeholder=\"Type your answer...\" style=\"min-height: 70px;\"></textarea>\n              <input type=\"hidden\" name=\"question_{{ loop.index0 }}\" value=\"{{ q }}\">\n            </div>\n          {% endfor %}\n          <div class=\"actions\" style=\"margin-top: 12px; gap: 10px;\">\n            <button class=\"btn btn-ghost\" type=\"submit\" name=\"action\" value=\"answers\">Save answers into JSON</button>\n            <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"refine\">Send answers to GPT</button>\n       </div>\n        </form>\n      </div>\n      </div>
-    {% endif %}
+      {% if draft_questions %}
+        <div class="card" style="margin-top: 10px;">
+          <div class="tagline"><span class="pill">Questions to answer</span><span>Fill these in to update the JSON</span></div>
+          <form method="post" id="answersForm">
+            <textarea name="draft_json" style="display:none;">{{ draft }}</textarea>
+            <input type="hidden" name="plan_text" value="{{ plan_text }}">
+            <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
+            <input type="hidden" name="use_model" value="on">
+            <input type="hidden" name="model" value="{{ defaults.model }}">
+            <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
+            <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
+            <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
+            <input type="hidden" name="subscription_key" value="{{ stored.subscription_key }}">
+            <input type="hidden" name="api_token" value="{{ stored.api_token }}">
+            <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
+            {% for q in draft_questions %}
+              <div style="margin-top: 12px;">
+                <div class="pill" style="margin-bottom: 6px; display: inline-flex;">Question {{ loop.index }}</div>
+                <div style="margin-bottom: 6px; color: #0f172a;">{{ q }}</div>
+                <textarea name="answer_{{ loop.index0 }}" placeholder="Type your answer..." style="min-height: 70px;"></textarea>
+                <input type="hidden" name="question_{{ loop.index0 }}" value="{{ q }}">
+              </div>
+            {% endfor %}
+            <div class="actions" style="margin-top: 12px; gap: 10px;">
+              <button class="btn btn-ghost" type="submit" name="action" value="answers">Save answers into JSON</button>
+              <button class="btn btn-primary" type="submit" name="action" value="refine">Send answers to GPT</button>
+            </div>
+          </form>
+        </div>
+      {% endif %}
 
     {% if draft %}
       <div class="section">
