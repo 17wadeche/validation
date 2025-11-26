@@ -204,16 +204,6 @@ def _build_prompt_from_request(
 
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
 
-    if release_type == "update":
-        old_examples, old_stored = _gather_examples(
-            files.getlist("examples_old"), [], tag="OLD"
-        )
-        new_examples, new_stored = _gather_examples(
-            files.getlist("examples_new"), [], tag="NEW"
-        )
-        examples = examples + old_examples + new_examples
-        stored_examples = stored_examples + old_stored + new_stored
-
     code_context = _gather_code_context(
         files.getlist("code_files"),
         form.get("code_context", ""),
@@ -683,8 +673,9 @@ TEMPLATE = """
               <div>
                 <label class=\"checkbox\">
                   <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\">
-                  <span>Remove saved template ({{ saved_inputs.template.name }})</span>
+                  <span>Forget saved template ({{ saved_inputs.template.name }})</span>
                 </label>
+                <button type=\"button\" class=\"btn btn-ghost\" id=\"clearTemplateBtn\" style=\"margin-top:6px;\">Clear saved template now</button>
                 <p class=\"muted\" style=\"margin-top:6px;\">If you skip an upload, the saved template will be reused.</p>
               </div>
             {% endif %}
@@ -697,50 +688,38 @@ TEMPLATE = """
                 <input type=\"radio\" name=\"release_type\" value=\"update\" {% if release_type == 'update' %}checked{% endif %}>
                 <span>Update/change: upload prior + current code/files so deltas are clear</span>
               </label>
-              <p class=\"muted\" style=\"margin:0;\">When set to update, extra slots appear for OLD vs NEW artifacts and the prompt tags them for GPT.</p>
+              <p class=\"muted\" style=\"margin:0;\">When set to update, extra slots appear for previous vs updated code/context so GPT knows what changed.</p>
             </div>
           </div>
         </div>
 
-        <div class=\"panel\" data-step=\"Step 2\">
+        <div class="panel" data-step="Step 2">
           <h3>Examples</h3>
-          <p>Provide example docs to guide tone and structure. You can reuse saved items or tag OLD/NEW for updates.</p>
-          <div class=\"stack\">
-            <input class=\"input\" type=\"file\" name=\"examples\" multiple>
+          <p>Provide example docs to guide tone and structure. You can reuse saved items or clear them.</p>
+          <div class="stack">
+            <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
               <div>
-                <div class=\"pill\" style=\"background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);\">Saved examples</div>
+                <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
                 {% for example in saved_inputs.examples %}
-                  <label class=\"checkbox\" style=\"margin-top: 8px;\">
-                    <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
+                  <label class="checkbox" style="margin-top: 8px;">
+                    <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
                     <span>Reuse {{ example.name }}</span>
                   </label>
                 {% endfor %}
-                <label class=\"checkbox\" style=\"margin-top: 10px;\">
-                  <input type=\"checkbox\" name=\"clear_examples\">
+                <label class="checkbox" style="margin-top: 10px;">
+                  <input type="checkbox" name="clear_examples" id="clear_examples">
                   <span>Forget all saved examples after this run</span>
                 </label>
-                <p class=\"muted\" style=\"margin-top:6px;\">Uncheck any item to skip it for this run, or clear everything to start fresh.</p>
+                <button type="button" class="btn btn-ghost" id="clearExamplesBtn" style="margin-top:6px;">Clear saved examples now</button>
+                <p class="muted" style="margin-top:6px;">Uncheck items to skip them or clear everything to start fresh.</p>
               </div>
             {% endif %}
-
-            <div class=\"update-only\" style=\"margin-top: 4px; display:none;\">
-              <div class=\"tag-row\">
-                <span class=\"pill pill-old\">OLD</span>
-                <span class=\"muted\" style=\"margin:0;\">Prior version examples</span>
-              </div>
-              <input class=\"input\" type=\"file\" name=\"examples_old\" multiple>
-              <div class=\"tag-row\" style=\"margin-top: 10px;\">
-                <span class=\"pill pill-new\">NEW</span>
-                <span class=\"muted\" style=\"margin:0;\">Current version examples</span>
-              </div>
-              <input class=\"input\" type=\"file\" name=\"examples_new\" multiple>
-              <p class=\"muted\" style=\"margin-top:6px;\">OLD/NEW labels are added in the prompt so GPT keeps the two sets distinct.</p>
-            </div>
           </div>
         </div>
 
-        <div class=\"panel\" data-step=\"Step 3\">
+
+<div class=\"panel\" data-step=\"Step 3\">
           <h3>Code & context</h3>
           <p>Attach relevant code or notes so answers stay anchored to your build.</p>
           <div class=\"stack\">
@@ -778,13 +757,34 @@ TEMPLATE = """
               <span>Generate answers with MedtronicGPT</span>
             </label>
             <div style=\"margin-top: 10px; display:grid; gap:10px;\">
-              <input class=\"input\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\">
-              <input class=\"input\" type=\"text\" name=\"path_template\" placeholder=\"Path template\" value=\"{{ defaults.path_template }}\">
-              <input class=\"input\" type=\"text\" name=\"api_version\" placeholder=\"API version\" value=\"{{ defaults.api_version }}\">
-              <input class=\"input\" type=\"text\" name=\"model\" placeholder=\"Model (gpt-41)\" value=\"{{ defaults.model }}\">
-              <input class=\"input\" type=\"text\" name=\"subscription_key\" placeholder=\"Subscription key\" value=\"{{ stored.subscription_key or '' }}\">
-              <input class=\"input\" type=\"text\" name=\"api_token\" placeholder=\"API token\" value=\"{{ stored.api_token or '' }}\">
-              <input class=\"input\" type=\"text\" name=\"refresh_token\" placeholder=\"Refresh token\" value=\"{{ stored.refresh_token or '' }}\">
+              <div class=\"field\">
+                <label for=\"base_url\" class=\"muted\" style=\"font-weight:600;\">Base URL</label>
+                <input class=\"input\" id=\"base_url\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"path_template\" class=\"muted\" style=\"font-weight:600;\">Path template</label>
+                <input class=\"input\" id=\"path_template\" type=\"text\" name=\"path_template\" placeholder=\"Path template\" value=\"{{ defaults.path_template }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"api_version\" class=\"muted\" style=\"font-weight:600;\">API version</label>
+                <input class=\"input\" id=\"api_version\" type=\"text\" name=\"api_version\" placeholder=\"API version\" value=\"{{ defaults.api_version }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"model\" class=\"muted\" style=\"font-weight:600;\">Model</label>
+                <input class=\"input\" id=\"model\" type=\"text\" name=\"model\" placeholder=\"Model (gpt-41)\" value=\"{{ defaults.model }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"subscription_key\" class=\"muted\" style=\"font-weight:600;\">Subscription key</label>
+                <input class=\"input\" id=\"subscription_key\" type=\"text\" name=\"subscription_key\" placeholder=\"Subscription key\" value=\"{{ stored.subscription_key or '' }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"api_token\" class=\"muted\" style=\"font-weight:600;\">API token</label>
+                <input class=\"input\" id=\"api_token\" type=\"text\" name=\"api_token\" placeholder=\"API token\" value=\"{{ stored.api_token or '' }}\">
+              </div>
+              <div class=\"field\">
+                <label for=\"refresh_token\" class=\"muted\" style=\"font-weight:600;\">Refresh token</label>
+                <input class=\"input\" id=\"refresh_token\" type=\"text\" name=\"refresh_token\" placeholder=\"Refresh token\" value=\"{{ stored.refresh_token or '' }}\">
+              </div>
             </div>
             <label class=\"checkbox\" style=\"margin-top: 10px;\">
               <input type=\"checkbox\" name=\"remember_credentials\" checked>
@@ -792,7 +792,14 @@ TEMPLATE = """
             </label>
           </div>
         </div>
-      </div>
+        </div>
+        <div class=\"actions\" style=\"margin-top: 12px; justify-content:flex-start;\">
+          <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
+          <label class=\"checkbox\" style=\"gap:6px;\">
+            <input type=\"checkbox\" name=\"remember_inputs\" checked>
+            <span>Remember uploaded template and examples on this device</span>
+          </label>
+        </div>
       {% if draft_questions %}
         <div class="card" style="margin-top: 10px;">
           <div class="tagline"><span class="pill">Questions to answer</span><span>Fill these in to update the JSON</span></div>
@@ -915,6 +922,10 @@ TEMPLATE = """
     const chatForm = document.getElementById('chatForm');
     const connectionToggle = document.getElementById('toggle-connection');
     const connectionBody = document.getElementById('connection-body');
+    const clearTemplateBtn = document.getElementById('clearTemplateBtn');
+    const removeTemplate = document.getElementById('remove_template');
+    const clearExamplesBtn = document.getElementById('clearExamplesBtn');
+    const clearExamples = document.getElementById('clear_examples');
     const releaseValue = '{{ release_type }}';
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
@@ -942,6 +953,21 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
+
+    if (clearTemplateBtn && removeTemplate) {
+      clearTemplateBtn.addEventListener('click', () => {
+        removeTemplate.checked = true;
+      });
+    }
+
+    if (clearExamplesBtn && clearExamples) {
+      clearExamplesBtn.addEventListener('click', () => {
+        clearExamples.checked = true;
+        document.querySelectorAll('input[id^="keep_example_"]').forEach((cb) => {
+          cb.checked = false;
+        });
+      });
+    }
 
     if (answersForm) {
       const rel = document.createElement('input');
