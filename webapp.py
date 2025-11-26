@@ -57,6 +57,17 @@ def _read_saved_file(saved_file: StoredFile) -> Tuple[Optional[str], Optional[by
     return text, raw_bytes, suffix, saved_file.name
 
 
+def _dedupe_by_name(files: List[StoredFile]) -> List[StoredFile]:
+    seen = set()
+    unique: List[StoredFile] = []
+    for item in files:
+        if item.name in seen:
+            continue
+        seen.add(item.name)
+        unique.append(item)
+    return unique
+
+
 def _extract_questions_from_json(payload: str) -> List[str]:
     if not payload:
         return []
@@ -187,8 +198,7 @@ def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[s
 def _build_prompt_from_request(
     form,
     files,
-    saved_inputs: SavedInputs,
-    keep_saved_template: bool,
+    selected_template: Optional[StoredFile],
     kept_saved_examples: List[StoredFile],
     plan_context: str | None,
     release_type: str,
@@ -196,8 +206,8 @@ def _build_prompt_from_request(
     template_text, template_bytes, _, template_name = _read_upload(files.get("template_file"))
     stored_template: Optional[StoredFile] = None
 
-    if not template_text and keep_saved_template and saved_inputs.template:
-        template_text, template_bytes, _, template_name = _read_saved_file(saved_inputs.template)
+    if not template_text and selected_template:
+        template_text, template_bytes, _, template_name = _read_saved_file(selected_template)
 
     if template_text and template_bytes is not None and template_name:
         stored_template = StoredFile.from_bytes(template_name, template_bytes)
@@ -244,6 +254,7 @@ def index():
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
     release_type: str = "initial"
+    selected_template_name: str = stored_inputs.templates[0].name if stored_inputs.templates else ""
 
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -263,7 +274,8 @@ def index():
 
     if request.method == "POST":
         draft_json_from_form = request.form.get("draft_json", "")
-        keep_saved_template = request.form.get("remove_template") != "on"
+        clear_saved_templates = request.form.get("clear_templates") == "on"
+        keep_saved_templates = not clear_saved_templates
         clear_saved_examples = request.form.get("clear_examples") == "on"
         kept_saved_examples: List[StoredFile] = []
         for idx, saved_example in enumerate(stored_inputs.examples):
@@ -273,8 +285,20 @@ def index():
             if keep_flag == "on":
                 kept_saved_examples.append(saved_example)
 
+        template_choice = request.form.get("selected_template", "")
+        selected_template_name = template_choice.strip()
+
+        available_templates = stored_inputs.templates if keep_saved_templates else []
+        selected_template_file: Optional[StoredFile] = None
+        if available_templates and selected_template_name:
+            selected_template_file = next(
+                (item for item in available_templates if item.name == selected_template_name),
+                available_templates[0],
+            )
+            selected_template_name = selected_template_file.name
+
         # defaults in case inputs are not being remembered
-        final_template: Optional[StoredFile] = stored_inputs.template if keep_saved_template else None
+        final_templates: List[StoredFile] = available_templates
         final_examples: List[StoredFile] = kept_saved_examples
 
         plan_text = request.form.get("plan_text", "")
@@ -292,16 +316,17 @@ def index():
         ) = _build_prompt_from_request(
             request.form,
             request.files,
-            stored_inputs,
-            keep_saved_template,
+            selected_template_file,
             kept_saved_examples,
             plan_text,
             release_type,
         )
+        if stored_template:
+            selected_template_name = stored_template.name
         code_context_text = code_context
-        if not template_bytes and keep_saved_template and stored_inputs.template:
+        if not template_bytes and selected_template_file:
             try:
-                template_bytes = stored_inputs.template.to_bytes()
+                template_bytes = selected_template_file.to_bytes()
             except Exception:
                 template_bytes = None
         action = request.form.get("action", "build")
@@ -459,12 +484,13 @@ def index():
             draft_json_from_form = draft
 
         if request.form.get("remember_inputs") == "on":
-            final_template = stored_template if stored_template else final_template
+            if stored_template:
+                final_templates = _dedupe_by_name(final_templates + [stored_template])
             if clear_saved_examples:
                 final_examples = stored_examples
             else:
                 final_examples = kept_saved_examples + stored_examples
-        persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
+        persisted_inputs = SavedInputs(templates=final_templates, examples=final_examples)
         save_inputs(persisted_inputs)
 
         if client and client.last_refresh and remember_credentials:
@@ -498,6 +524,7 @@ def index():
         template_text=template_text,
         missing_placeholders=missing_placeholders,
         release_type=release_type,
+        selected_template_name=selected_template_name,
     )
 
 
@@ -643,7 +670,6 @@ TEMPLATE = """
       <div>
         <div class=\"badge\">Medtronic Validation</div>
         <h1>Validation Draft Builder</h1>
-        <div class=\"subtitle\">Upload your template and examples, then generate a filled-out answer list with MedtronicGPT.</div>
       </div>
     </div>
 
@@ -661,34 +687,42 @@ TEMPLATE = """
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
 
       <div class=\"section-body\">
-        <div class=\"panel\" data-step=\"Step 1\">
+        <div class="panel" data-step="Step 1">
           <h3>Template & release</h3>
-          <p>Upload your template, keep a saved one, and choose whether this is an initial release or an update.</p>
-          <div class=\"stack\">
+          <p>Pick a saved template or upload a new one, then choose the release type.</p>
+          <div class="stack">
             <div>
-              <label class=\"muted\" style=\"font-weight:600;\">Template file</label>
-              <input class=\"input\" type=\"file\" name=\"template_file\">
+              <label class="muted" style="font-weight:600;">Upload template</label>
+              <input class="input" type="file" name="template_file">
             </div>
-            {% if saved_inputs.template %}
-              <div>
-                <label class=\"checkbox\">
-                  <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\">
-                  <span>Forget saved template ({{ saved_inputs.template.name }})</span>
-                </label>
-                <button type=\"button\" class=\"btn btn-ghost\" id=\"clearTemplateBtn\" style=\"margin-top:6px;\">Clear saved template now</button>
-                <p class=\"muted\" style=\"margin-top:6px;\">If you skip an upload, the saved template will be reused.</p>
+            {% if saved_inputs.templates %}
+              <div class="stack" style="gap: 8px;">
+                <label class="muted" style="font-weight:600;">Saved templates</label>
+                <select class="input" name="selected_template">
+                  {% for tmpl in saved_inputs.templates %}
+                    <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
+                  {% endfor %}
+                  <option value="" {% if not selected_template_name %}selected{% endif %}>Use newly uploaded template</option>
+                </select>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                  <label class="checkbox">
+                    <input type="checkbox" name="clear_templates" id="clear_templates">
+                    <span>Forget all saved templates after this run</span>
+                  </label>
+                  <button type="button" class="btn btn-ghost" id="clearTemplateBtn">Clear saved templates now</button>
+                </div>
               </div>
             {% endif %}
-            <div style=\"display:grid; gap:10px;\">
-              <label class=\"checkbox\">
-                <input type=\"radio\" name=\"release_type\" value=\"initial\" {% if release_type != 'update' %}checked{% endif %}>
+            <div style="display:grid; gap:10px;">
+              <label class="checkbox">
+                <input type="radio" name="release_type" value="initial" {% if release_type != 'update' %}checked{% endif %}>
                 <span>Initial release (default)</span>
               </label>
-              <label class=\"checkbox\" style=\"align-items:flex-start;\">
-                <input type=\"radio\" name=\"release_type\" value=\"update\" {% if release_type == 'update' %}checked{% endif %}>
+              <label class="checkbox" style="align-items:flex-start;">
+                <input type="radio" name="release_type" value="update" {% if release_type == 'update' %}checked{% endif %}>
                 <span>Update/change: upload prior + current code/files so deltas are clear</span>
               </label>
-              <p class=\"muted\" style=\"margin:0;\">When set to update, extra slots appear for previous vs updated code/context so GPT knows what changed.</p>
+              <p class="muted" style="margin:0;">When set to update, extra slots appear for previous vs updated code/context so GPT knows what changed.</p>
             </div>
           </div>
         </div>
@@ -923,7 +957,7 @@ TEMPLATE = """
     const connectionToggle = document.getElementById('toggle-connection');
     const connectionBody = document.getElementById('connection-body');
     const clearTemplateBtn = document.getElementById('clearTemplateBtn');
-    const removeTemplate = document.getElementById('remove_template');
+    const clearTemplates = document.getElementById('clear_templates');
     const clearExamplesBtn = document.getElementById('clearExamplesBtn');
     const clearExamples = document.getElementById('clear_examples');
     const releaseValue = '{{ release_type }}';
@@ -965,9 +999,9 @@ TEMPLATE = """
       });
     });
 
-    if (clearTemplateBtn && removeTemplate) {
+    if (clearTemplateBtn && clearTemplates) {
       clearTemplateBtn.addEventListener('click', () => {
-        removeTemplate.checked = true;
+        clearTemplates.checked = true;
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('clear_saved');
       });

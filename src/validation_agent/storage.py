@@ -4,7 +4,7 @@ import base64
 import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 DEFAULT_INPUT_STORE = Path.home() / ".validation_agent" / "inputs.json"
 
@@ -26,7 +26,7 @@ class StoredFile:
 
 @dataclass
 class SavedInputs:
-    template: Optional[StoredFile] = None
+    templates: List[StoredFile] = field(default_factory=list)
     examples: List[StoredFile] = field(default_factory=list)
 
 
@@ -35,11 +35,22 @@ def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
         return SavedInputs()
     try:
         raw = json.loads(store.read_text(encoding="utf-8"))
-        template = None
-        if raw.get("template"):
-            template = StoredFile(**raw["template"])
+        templates: List[StoredFile] = []
+        if raw.get("templates"):
+            templates = [StoredFile(**item) for item in raw.get("templates", [])]
+        elif raw.get("template"):
+            templates = [StoredFile(**raw["template"])]
+
+        unique_templates: List[StoredFile] = []
+        seen = set()
+        for tmpl in templates:
+            if tmpl.name in seen:
+                continue
+            seen.add(tmpl.name)
+            unique_templates.append(tmpl)
+        templates = unique_templates
         examples = [StoredFile(**item) for item in raw.get("examples", [])]
-        return SavedInputs(template=template, examples=examples)
+        return SavedInputs(templates=templates, examples=examples)
     except Exception:
         return SavedInputs()
 
