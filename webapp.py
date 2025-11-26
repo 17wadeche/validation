@@ -731,7 +731,6 @@ TEMPLATE = """
               <div class="stack" style="gap: 8px;">
                 <label class="muted" style="font-weight:600;">Select template</label>
                 <select class="input" name="selected_template">
-                  <option value="" {% if not selected_template_name %}selected{% endif %}>Use newly uploaded template</option>
                   {% for tmpl in saved_inputs.templates %}
                     <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
                   {% endfor %}
