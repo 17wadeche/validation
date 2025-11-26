@@ -34,7 +34,10 @@ def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional
     if not filename:
         return None, None, None, None
 
-    raw_bytes = file_storage.stream.read()
+    # Use FileStorage.read() directly to avoid issues with exhausted streams when
+    # Werkzeug reuses the underlying file handle. This ensures we persist the
+    # uploaded template even if extraction fails.
+    raw_bytes = file_storage.read()
     suffix = Path(filename).suffix
     text: Optional[str]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
