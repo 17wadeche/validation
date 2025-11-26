@@ -57,6 +57,30 @@ Draft responses carry a `placeholders` map **and a detailed `answers` list that 
 
 The UI will assemble the same prompt used by the CLI and, when credentials are provided, will request a draft from MedtronicGPT. Validation instructions should come from the template (including any blue placeholder text).
 
+## One-click Windows EXE (for non-technical users)
+
+If colleagues don’t have Python installed, you can hand them a single executable that launches the same UI locally:
+
+1. On Windows, install dependencies and PyInstaller:
+
+   ```powershell
+   py -m venv .venv
+   .venv\Scripts\activate
+   pip install -r requirements.txt pyinstaller
+   ```
+
+2. Build the EXE (outputs `dist\validation-ui.exe`):
+
+   ```powershell
+   py packaging\build_exe.py
+   ```
+
+3. Share `dist\validation-ui.exe` (and any template/example files). Recipients double-click the EXE; it starts the local server and opens `http://127.0.0.1:8000` in their browser. No separate Python setup is required.
+
+Tips:
+- Keep the EXE and any saved templates/examples in the same folder when sharing to simplify hand-off.
+- If the EXE is blocked by Windows SmartScreen, users can choose “More info” → “Run anyway” (the binary is unsigned). The app still runs only on localhost by default.
+
 ## Notes on compilation check
 
 Running `python -m compileall src cli.py webapp.py` will emit errors if bytecode generation fails; otherwise it completes quietly after listing the paths. You should see `__pycache__` directories appear beside the compiled files.
