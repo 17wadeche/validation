@@ -296,6 +296,7 @@ def index():
     if request.method == "POST":
         draft_json_from_form = request.form.get("draft_json", "")
         remove_template_name = request.form.get("remove_template", "").strip()
+        remove_example_name = request.form.get("remove_example", "").strip()
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
         clear_saved_examples = request.form.get("clear_examples") == "on"
@@ -336,6 +337,8 @@ def index():
         action = request.form.get("action", "build")
         if remove_template_name:
             action = "remove_template"
+        if remove_example_name:
+            action = "remove_example"
 
         if action == "remove_template":
             updated_templates = [
@@ -345,6 +348,34 @@ def index():
             save_inputs(persisted_inputs)
             stored_inputs = persisted_inputs
             selected_template_name = updated_templates[0].name if updated_templates else ""
+            draft = draft_json_from_form or draft
+            draft_questions = _extract_questions_from_json(draft) if draft else []
+            return render_template_string(
+                TEMPLATE,
+                prompt=prompt,
+                draft=draft,
+                error=error,
+                defaults=defaults,
+                history=history,
+                stored=stored,
+                saved_inputs=persisted_inputs,
+                plan_text=plan_text,
+                draft_questions=draft_questions,
+                draft_json=draft_json_from_form,
+                code_context=code_context_text,
+                release_type=release_type,
+                selected_template_name=selected_template_name,
+                missing_placeholders=missing_placeholders,
+            )
+
+        if action == "remove_example":
+            updated_examples = [
+                ex for ex in stored_inputs.examples if ex.name != remove_example_name
+            ]
+            persisted_inputs = SavedInputs(templates=stored_inputs.templates, examples=updated_examples)
+            save_inputs(persisted_inputs)
+            stored_inputs = persisted_inputs
+            kept_saved_examples = updated_examples
             draft = draft_json_from_form or draft
             draft_questions = _extract_questions_from_json(draft) if draft else []
             return render_template_string(
@@ -742,6 +773,7 @@ TEMPLATE = """
       <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
+      <input type=\"hidden\" name=\"remove_example\" id=\"removeExampleInput\" value=\"\">
 
       <div class=\"section-body\">
         <div class="panel" data-step="Step 1">
@@ -785,20 +817,25 @@ TEMPLATE = """
           <div class="stack">
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
-              <div>
+              <div class="stack" style="gap:8px;">
                 <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
-                {% for example in saved_inputs.examples %}
-                  <label class="checkbox" style="margin-top: 8px;">
-                    <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
-                    <span>Reuse {{ example.name }}</span>
-                  </label>
-                {% endfor %}
-                <label class="checkbox" style="margin-top: 10px;">
+                <div class="stack" style="gap:6px;">
+                  {% for example in saved_inputs.examples %}
+                    <div style="display:flex; align-items:center; gap:10px;">
+                      <label class="checkbox" style="margin:0; flex:1;">
+                        <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
+                        <span>{{ example.name }}</span>
+                      </label>
+                      <button type="button" class="btn btn-ghost" data-remove-example="{{ example.name }}" title="Remove example" style="padding:8px 10px;">&#8722;</button>
+                    </div>
+                  {% endfor %}
+                </div>
+                <label class="checkbox" style="margin-top: 6px;">
                   <input type="checkbox" name="clear_examples" id="clear_examples">
                   <span>Forget all saved examples after this run</span>
                 </label>
                 <button type="button" class="btn btn-ghost" id="clearExamplesBtn" style="margin-top:6px;">Clear saved examples now</button>
-                <p class="muted" style="margin-top:6px;">Uncheck items to skip them or clear everything to start fresh.</p>
+                <p class="muted" style="margin-top:6px;">Select multiple saved examples, or remove the ones you no longer need.</p>
               </div>
             {% endif %}
           </div>
@@ -1010,6 +1047,8 @@ TEMPLATE = """
     const connectionBody = document.getElementById('connection-body');
     const clearExamplesBtn = document.getElementById('clearExamplesBtn');
     const clearExamples = document.getElementById('clear_examples');
+    const removeExampleInput = document.getElementById('removeExampleInput');
+    const removeExampleButtons = Array.from(document.querySelectorAll('[data-remove-example]'));
     const templateSelect = document.getElementById('templateSelect');
     const removeTemplateButton = document.getElementById('removeTemplateButton');
     const releaseValue = '{{ release_type }}';
@@ -1059,6 +1098,17 @@ TEMPLATE = """
         });
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('clear_saved');
+      });
+    }
+
+    if (removeExampleButtons.length && mainForm && removeExampleInput) {
+      removeExampleButtons.forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.preventDefault();
+          removeExampleInput.value = btn.getAttribute('data-remove-example') || '';
+          if (rememberInputs) rememberInputs.checked = true;
+          submitWithAction('remove_example');
+        });
       });
     }
 
