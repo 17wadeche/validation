@@ -545,18 +545,39 @@ TEMPLATE = """
     .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
     .badge { padding: 8px 12px; border-radius: 999px; background: linear-gradient(120deg, rgba(34, 211, 238, 0.15), rgba(37, 99, 235, 0.14)); color: var(--accent); font-weight: 600; font-size: 14px; }
     .subtitle { color: var(--muted); margin-top: 10px; line-height: 1.5; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; margin-top: 16px; }
-    .inputs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; margin-top: 16px; }
     .stack { display: flex; flex-direction: column; gap: 12px; }
+    .muted { color: var(--muted); }
     .card {
       background: var(--card);
+      border-radius: 14px;
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 20px;
-      box-shadow: var(--shadow);
+      padding: 18px;
+      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.06);
     }
-    .card-title { font-weight: 700; font-size: 17px; color: var(--text); }
-    .muted { color: var(--muted); }
+    .section-body { display: grid; gap: 14px; }
+    .panel {
+      background: var(--card);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 16px 18px;
+      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.06);
+      position: relative;
+    }
+    .panel::before {
+      content: attr(data-step);
+      position: absolute;
+      left: 14px;
+      top: -12px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 13px;
+      box-shadow: 0 10px 25px rgba(37, 99, 235, 0.35);
+    }
+    .panel h3 { margin: 6px 0 8px; font-size: 17px; }
+    .panel p { margin: 0 0 10px; color: var(--muted); }
     .tag-row { display: flex; align-items: center; gap: 8px; }
     .pill-old { background: rgba(59,130,246,0.1); color: #2563eb; border-color: rgba(59,130,246,0.35); }
     .pill-new { background: rgba(16,185,129,0.1); color: #059669; border-color: rgba(16,185,129,0.3); }
@@ -643,156 +664,135 @@ TEMPLATE = """
     <div class=\"section\">
       <div class=\"section-head\">
         <h2>Inputs</h2>
-        <p>Upload files, context, and connection details before generating answers.</p>
+        <p>Step through the essentials: template, release type, examples, context, and connection.</p>
       </div>
       <form id=\"mainForm\" method=\"post\" enctype=\"multipart/form-data\">
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
 
-      <div class="inputs-grid">
-        <div class="stack">
-          <div class="card">
-            <div class="card-title">Template</div>
-            <p class="muted">Upload your template to preserve tables, colors, and placeholder text.</p>
-            <input class="input" type="file" name="template_file">
+      <div class=\"section-body\">
+        <div class=\"panel\" data-step=\"Step 1\">
+          <h3>Template & release</h3>
+          <p>Upload your template, keep a saved one, and choose whether this is an initial release or an update.</p>
+          <div class=\"stack\">
+            <div>
+              <label class=\"muted\" style=\"font-weight:600;\">Template file</label>
+              <input class=\"input\" type=\"file\" name=\"template_file\">
+            </div>
             {% if saved_inputs.template %}
-              <div style="margin-top: 10px;">
-                <label class="checkbox">
-                  <input type="checkbox" name="remove_template" id="remove_template">
+              <div>
+                <label class=\"checkbox\">
+                  <input type=\"checkbox\" name=\"remove_template\" id=\"remove_template\">
                   <span>Remove saved template ({{ saved_inputs.template.name }})</span>
                 </label>
-                <p class="muted" style="margin-top:6px;">If you skip an upload, the saved template will be reused.</p>
+                <p class=\"muted\" style=\"margin-top:6px;\">If you skip an upload, the saved template will be reused.</p>
               </div>
             {% endif %}
-          </div>
-
-          <div class="card">
-            <div class="card-title">Release type</div>
-            <div style="margin-top: 12px; display: grid; gap: 10px;">
-              <label class="checkbox">
-                <input type="radio" name="release_type" value="initial" {% if release_type != 'update' %}checked{% endif %}>
+            <div style=\"display:grid; gap:10px;\">
+              <label class=\"checkbox\">
+                <input type=\"radio\" name=\"release_type\" value=\"initial\" {% if release_type != 'update' %}checked{% endif %}>
                 <span>Initial release (default)</span>
               </label>
-              <label class="checkbox" style="align-items:flex-start;">
-                <input type="radio" name="release_type" value="update" {% if release_type == 'update' %}checked{% endif %}>
+              <label class=\"checkbox\" style=\"align-items:flex-start;\">
+                <input type=\"radio\" name=\"release_type\" value=\"update\" {% if release_type == 'update' %}checked{% endif %}>
                 <span>Update/change: upload prior + current code/files so deltas are clear</span>
               </label>
-              <p class="muted" style="margin:0;">When set to update, extra slots appear for OLD vs NEW artifacts and the prompt tags them for GPT.</p>
+              <p class=\"muted\" style=\"margin:0;\">When set to update, extra slots appear for OLD vs NEW artifacts and the prompt tags them for GPT.</p>
             </div>
           </div>
+        </div>
 
-          <div class="card">
-            <div class="card-title">Examples</div>
-            <p class="muted">Upload supporting examples to guide tone and structure.</p>
-            <input class="input" type="file" name="examples" multiple>
+        <div class=\"panel\" data-step=\"Step 2\">
+          <h3>Examples</h3>
+          <p>Provide example docs to guide tone and structure. You can reuse saved items or tag OLD/NEW for updates.</p>
+          <div class=\"stack\">
+            <input class=\"input\" type=\"file\" name=\"examples\" multiple>
             {% if saved_inputs.examples %}
-              <div style="margin-top: 10px;">
-                <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
+              <div>
+                <div class=\"pill\" style=\"background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);\">Saved examples</div>
                 {% for example in saved_inputs.examples %}
-                  <label class="checkbox" style="margin-top: 8px;">
-                    <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
+                  <label class=\"checkbox\" style=\"margin-top: 8px;\">
+                    <input type=\"checkbox\" name=\"keep_example_{{ loop.index0 }}\" id=\"keep_example_{{ loop.index0 }}\" checked>
                     <span>Reuse {{ example.name }}</span>
                   </label>
                 {% endfor %}
-                <label class="checkbox" style="margin-top: 10px;">
-                  <input type="checkbox" name="clear_examples">
+                <label class=\"checkbox\" style=\"margin-top: 10px;\">
+                  <input type=\"checkbox\" name=\"clear_examples\">
                   <span>Forget all saved examples after this run</span>
                 </label>
-                <p class="muted" style="margin-top:6px;">Uncheck any item to skip it for this run, or clear everything to start fresh.</p>
+                <p class=\"muted\" style=\"margin-top:6px;\">Uncheck any item to skip it for this run, or clear everything to start fresh.</p>
               </div>
             {% endif %}
 
-            <div class="update-only" style="margin-top: 12px; display:none;">
-              <div class="tag-row">
-                <span class="pill pill-old">OLD</span>
-                <span class="muted" style="margin:0;">Prior version examples</span>
+            <div class=\"update-only\" style=\"margin-top: 4px; display:none;\">
+              <div class=\"tag-row\">
+                <span class=\"pill pill-old\">OLD</span>
+                <span class=\"muted\" style=\"margin:0;\">Prior version examples</span>
               </div>
-              <input class="input" type="file" name="examples_old" multiple>
-              <div class="tag-row" style="margin-top: 10px;">
-                <span class="pill pill-new">NEW</span>
-                <span class="muted" style="margin:0;">Current version examples</span>
+              <input class=\"input\" type=\"file\" name=\"examples_old\" multiple>
+              <div class=\"tag-row\" style=\"margin-top: 10px;\">
+                <span class=\"pill pill-new\">NEW</span>
+                <span class=\"muted\" style=\"margin:0;\">Current version examples</span>
               </div>
-              <input class="input" type="file" name="examples_new" multiple>
-              <p class="muted" style="margin-top:6px;">OLD/NEW labels are added in the prompt so GPT keeps the two sets distinct.</p>
+              <input class=\"input\" type=\"file\" name=\"examples_new\" multiple>
+              <p class=\"muted\" style=\"margin-top:6px;\">OLD/NEW labels are added in the prompt so GPT keeps the two sets distinct.</p>
             </div>
           </div>
         </div>
 
-        <div class="stack">
-          <div class="card">
-            <div class="card-title">Code & context</div>
-            <p class="muted">Attach relevant snippets or notes so answers stay anchored to your build.</p>
-            <input class="input" type="file" name="code_files" multiple>
-            <div class="update-only" style="margin-top: 12px; display:none;">
-              <div class="tag-row">
-                <span class="pill pill-old">OLD</span>
-                <span class="muted" style="margin:0;">Previous code or config</span>
+        <div class=\"panel\" data-step=\"Step 3\">
+          <h3>Code & context</h3>
+          <p>Attach relevant code or notes so answers stay anchored to your build.</p>
+          <div class=\"stack\">
+            <input class=\"input\" type=\"file\" name=\"code_files\" multiple>
+            <div class=\"update-only\" style=\"margin-top: 4px; display:none;\">
+              <div class=\"tag-row\">
+                <span class=\"pill pill-old\">OLD</span>
+                <span class=\"muted\" style=\"margin:0;\">Previous code or config</span>
               </div>
-              <input class="input" type="file" name="code_files_old" multiple>
-              <div class="tag-row" style="margin-top: 10px;">
-                <span class="pill pill-new">NEW</span>
-                <span class="muted" style="margin:0;">Updated code or config</span>
+              <input class=\"input\" type=\"file\" name=\"code_files_old\" multiple>
+              <div class=\"tag-row\" style=\"margin-top: 10px;\">
+                <span class=\"pill pill-new\">NEW</span>
+                <span class=\"muted\" style=\"margin:0;\">Updated code or config</span>
               </div>
-              <input class="input" type="file" name="code_files_new" multiple>
+              <input class=\"input\" type=\"file\" name=\"code_files_new\" multiple>
             </div>
-            <div style="margin-top: 10px;">
-              <textarea name="code_context" placeholder="Paste relevant code snippets, configs, and notes...">{{ code_context}}</textarea>
+            <div>
+              <label class=\"muted\" style=\"font-weight:600;\">Provide supporting snippets</label>
+              <textarea name=\"code_context\" placeholder=\"Paste notes, links, or code snippets to ground the output.\">{{ code_context }}</textarea>
             </div>
           </div>
+        </div>
 
-          <div class="card">
-            <div class="tagline"><span class="pill">MedtronicGPT</span><span>Connection is pre-enabled</span><button type="button" class="pill" id="toggleModelCard" style="margin-left:auto;">Hide</button></div>
-          <div id="modelCardBody">
-            <div style="margin-top: 12px;">
-              <label class="checkbox">
-                <input type="checkbox" name="use_model" id="use_model" checked>
-                <span>Generate draft with MedtronicGPT</span>
-              </label>
+        <div class=\"panel\" data-step=\"Step 4\" id=\"connection-card\">
+          <div style=\"display:flex; align-items:center; justify-content:space-between; gap:10px;\">
+            <div>
+              <h3 style=\"margin:6px 0 2px;\">MedtronicGPT connection</h3>
+              <p class=\"muted\" style=\"margin:0;\">Provide credentials to send prompts; uncheck to generate locally.</p>
             </div>
-            <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px;">
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Model</label>
-                <input class="input" type="text" name="model" value="{{ defaults.model }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Base URL</label>
-                <input class="input" type="text" name="base_url" value="{{ defaults.base_url }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">API version</label>
-                <input class="input" type="text" name="api_version" value="{{ defaults.api_version }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Completions path</label>
-                <input class="input" type="text" name="path_template" value="{{ defaults.path_template }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Subscription key</label>
-                <input class="input" type="text" name="subscription_key" value="{{ stored.subscription_key }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">API token</label>
-                <input class="input" type="text" name="api_token" value="{{ stored.api_token }}">
-              </div>
-              <div>
-                <label class="pill" style="margin-bottom: 6px; display: inline-flex;">Refresh token</label>
-                <input class="input" type="text" name="refresh_token" value="{{ stored.refresh_token }}">
-              </div>
+            <button type=\"button\" id=\"toggle-connection\" class=\"btn btn-ghost\" style=\"padding:8px 10px;\">Hide</button>
+          </div>
+          <div id=\"connection-body\" style=\"margin-top: 12px;\">
+            <label class=\"checkbox\">
+              <input type=\"checkbox\" name=\"use_model\" checked>
+              <span>Generate answers with MedtronicGPT</span>
+            </label>
+            <div style=\"margin-top: 10px; display:grid; gap:10px;\">
+              <input class=\"input\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\">
+              <input class=\"input\" type=\"text\" name=\"path_template\" placeholder=\"Path template\" value=\"{{ defaults.path_template }}\">
+              <input class=\"input\" type=\"text\" name=\"api_version\" placeholder=\"API version\" value=\"{{ defaults.api_version }}\">
+              <input class=\"input\" type=\"text\" name=\"model\" placeholder=\"Model (gpt-41)\" value=\"{{ defaults.model }}\">
+              <input class=\"input\" type=\"text\" name=\"subscription_key\" placeholder=\"Subscription key\" value=\"{{ stored.subscription_key or '' }}\">
+              <input class=\"input\" type=\"text\" name=\"api_token\" placeholder=\"API token\" value=\"{{ stored.api_token or '' }}\">
+              <input class=\"input\" type=\"text\" name=\"refresh_token\" placeholder=\"Refresh token\" value=\"{{ stored.refresh_token or '' }}\">
             </div>
-            <div class="actions" style="margin-top: 12px;">
-              <label class="checkbox">
-                <input type="checkbox" name="remember_credentials" id="remember_credentials" checked>
-                <span>Remember credentials on this machine</span>
-              </label>
-              <label class="checkbox">
-                <input type="checkbox" name="remember_inputs" id="remember_inputs" checked>
-                <span>Remember template and examples on this machine</span>
-              </label>
-            </div>
+            <label class=\"checkbox\" style=\"margin-top: 10px;\">
+              <input type=\"checkbox\" name=\"remember_credentials\" checked>
+              <span>Remember credentials on this device</span>
+            </label>
           </div>
         </div>
       </div>
-
       {% if draft_questions %}
         <div class="card" style="margin-top: 10px;">
           <div class="tagline"><span class="pill">Questions to answer</span><span>Fill these in to update the JSON</span></div>
@@ -913,8 +913,8 @@ TEMPLATE = """
     const mainForm = document.getElementById('mainForm');
     const answersForm = document.getElementById('answersForm');
     const chatForm = document.getElementById('chatForm');
-    const modelToggle = document.getElementById('toggleModelCard');
-    const modelBody = document.getElementById('modelCardBody');
+    const connectionToggle = document.getElementById('toggle-connection');
+    const connectionBody = document.getElementById('connection-body');
     const releaseValue = '{{ release_type }}';
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
@@ -984,16 +984,11 @@ TEMPLATE = """
       });
     }
 
-    if (modelToggle && modelBody) {
-      modelToggle.addEventListener('click', () => {
-        const hidden = modelBody.style.display === 'none';
-        if (hidden) {
-          modelBody.style.display = '';
-          modelToggle.textContent = 'Hide';
-        } else {
-          modelBody.style.display = 'none';
-          modelToggle.textContent = 'Show';
-        }
+    if (connectionToggle && connectionBody) {
+      connectionToggle.addEventListener('click', () => {
+        const hidden = connectionBody.style.display === 'none';
+        connectionBody.style.display = hidden ? '' : 'none';
+        connectionToggle.textContent = hidden ? 'Hide' : 'Show';
       });
     }
 
