@@ -211,6 +211,8 @@ def _build_prompt_from_request(
 
     if template_bytes is not None and template_name:
         stored_template = StoredFile.from_bytes(template_name, template_bytes)
+        selected_template = stored_template
+        selected_template_name = stored_template.name
 
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
 
@@ -515,9 +517,11 @@ def index():
         if draft:
             draft_json_from_form = draft
 
+        if stored_template:
+            final_templates = _dedupe_by_name([stored_template] + final_templates)
+            selected_template_name = stored_template.name
+
         if request.form.get("remember_inputs") == "on":
-            if stored_template:
-                final_templates = _dedupe_by_name([stored_template] + final_templates)
             if clear_saved_examples:
                 final_examples = stored_examples
             else:
@@ -732,18 +736,13 @@ TEMPLATE = """
             {% if saved_inputs.templates %}
               <div class="stack" style="gap: 8px;">
                 <label class="muted" style="font-weight:600;">Select template</label>
-                <select class="input" name="selected_template">
-                  {% for tmpl in saved_inputs.templates %}
-                    <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
-                  {% endfor %}
-                </select>
-                <div class="stack" style="gap: 6px;">
-                  {% for tmpl in saved_inputs.templates %}
-                    <div class="tag-row" style="justify-content:flex-start; gap:6px;">
-                      <span class="pill">{{ tmpl.name }}</span>
-                      <button type="submit" name="remove_template" value="{{ tmpl.name }}" class="btn btn-ghost" style="padding:4px 8px;" title="Remove template">&#8722;</button>
-                    </div>
-                  {% endfor %}
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <select class="input" name="selected_template" id="templateSelect">
+                    {% for tmpl in saved_inputs.templates %}
+                      <option value="{{ tmpl.name }}" {% if tmpl.name == selected_template_name %}selected{% endif %}>{{ tmpl.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" name="remove_template" id="removeTemplateButton" value="{{ selected_template_name or saved_inputs.templates[0].name }}" class="btn btn-ghost" style="padding:10px 12px;" title="Remove selected template">&#8722;</button>
                 </div>
               </div>
             {% endif %}
@@ -992,6 +991,8 @@ TEMPLATE = """
     const connectionBody = document.getElementById('connection-body');
     const clearExamplesBtn = document.getElementById('clearExamplesBtn');
     const clearExamples = document.getElementById('clear_examples');
+    const templateSelect = document.getElementById('templateSelect');
+    const removeTemplateButton = document.getElementById('removeTemplateButton');
     const releaseValue = '{{ release_type }}';
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
@@ -1058,6 +1059,14 @@ TEMPLATE = """
       relChat.value = releaseValue;
       chatForm.prepend(relChat);
       chatReleaseInput = relChat;
+    }
+
+    if (templateSelect && removeTemplateButton) {
+      const syncRemoveTarget = () => {
+        removeTemplateButton.value = templateSelect.value || removeTemplateButton.value;
+      };
+      syncRemoveTarget();
+      templateSelect.addEventListener('change', syncRemoveTarget);
     }
     if (mainForm && loading) {
       mainForm.addEventListener('submit', (event) => {
