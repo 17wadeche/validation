@@ -48,6 +48,14 @@ def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional
             raw_bytes = file_storage.stream.read()
         except Exception:
             raw_bytes = b""
+    # If a prior read exhausted the stream, try one more rewind to capture bytes
+    # so the newly uploaded template can be persisted and selected immediately.
+    if raw_bytes is None or raw_bytes == b"":
+        try:
+            file_storage.stream.seek(0)
+            raw_bytes = file_storage.stream.read()
+        except Exception:
+            raw_bytes = b""
     suffix = Path(filename).suffix
     text: Optional[str]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -126,7 +134,7 @@ def _gather_examples(
             examples.append(Example(title=name, context="", output=content))
             stored_examples.append(StoredFile.from_bytes(name, raw_bytes))
 
-    return examples, stored_examples
+    return examples, _dedupe_by_name(stored_examples)
 
 
 def _format_code_section(label: str, snippets: List[str]) -> str:
@@ -299,12 +307,9 @@ def index():
         remove_example_name = request.form.get("remove_example", "").strip()
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
-        clear_saved_examples = request.form.get("clear_examples") == "on"
         kept_saved_examples: List[StoredFile] = []
         for idx, saved_example in enumerate(stored_inputs.examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
-            if clear_saved_examples:
-                continue
             if keep_flag == "on":
                 kept_saved_examples.append(saved_example)
 
@@ -572,11 +577,11 @@ def index():
             selected_template_name = stored_template.name
 
         if request.form.get("remember_inputs") == "on":
-            if clear_saved_examples:
-                final_examples = stored_examples
-            else:
-                final_examples = kept_saved_examples + stored_examples
-        persisted_inputs = SavedInputs(templates=final_templates, examples=final_examples)
+            final_examples = kept_saved_examples + stored_examples
+        persisted_inputs = SavedInputs(
+            templates=final_templates,
+            examples=_dedupe_by_name(final_examples),
+        )
         if not selected_template_name and persisted_inputs.templates:
             selected_template_name = persisted_inputs.templates[0].name
         save_inputs(persisted_inputs)
@@ -813,7 +818,7 @@ TEMPLATE = """
 
         <div class="panel" data-step="Step 2">
           <h3>Examples</h3>
-          <p>Provide example docs to guide tone and structure. You can reuse saved items or clear them.</p>
+          <p>Provide example docs to guide tone and structure.</p>
           <div class="stack">
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
@@ -830,11 +835,6 @@ TEMPLATE = """
                     </div>
                   {% endfor %}
                 </div>
-                <label class="checkbox" style="margin-top: 6px;">
-                  <input type="checkbox" name="clear_examples" id="clear_examples">
-                  <span>Forget all saved examples after this run</span>
-                </label>
-                <button type="button" class="btn btn-ghost" id="clearExamplesBtn" style="margin-top:6px;">Clear saved examples now</button>
                 <p class="muted" style="margin-top:6px;">Select multiple saved examples, or remove the ones you no longer need.</p>
               </div>
             {% endif %}
@@ -1045,8 +1045,6 @@ TEMPLATE = """
     const chatForm = document.getElementById('chatForm');
     const connectionToggle = document.getElementById('toggle-connection');
     const connectionBody = document.getElementById('connection-body');
-    const clearExamplesBtn = document.getElementById('clearExamplesBtn');
-    const clearExamples = document.getElementById('clear_examples');
     const removeExampleInput = document.getElementById('removeExampleInput');
     const removeExampleButtons = Array.from(document.querySelectorAll('[data-remove-example]'));
     const templateSelect = document.getElementById('templateSelect');
@@ -1089,17 +1087,6 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
-
-    if (clearExamplesBtn && clearExamples) {
-      clearExamplesBtn.addEventListener('click', () => {
-        clearExamples.checked = true;
-        document.querySelectorAll('input[id^="keep_example_"]').forEach((cb) => {
-          cb.checked = false;
-        });
-        if (rememberInputs) rememberInputs.checked = true;
-        submitWithAction('clear_saved');
-      });
-    }
 
     if (removeExampleButtons.length && mainForm && removeExampleInput) {
       removeExampleButtons.forEach((btn) => {
@@ -1162,10 +1149,17 @@ TEMPLATE = """
     }
 
     if (connectionToggle && connectionBody) {
+      const persisted = localStorage.getItem('medtronic-connection-hidden');
+      if (persisted === 'true') {
+        connectionBody.style.display = 'none';
+        connectionToggle.textContent = 'Show';
+      }
       connectionToggle.addEventListener('click', () => {
         const hidden = connectionBody.style.display === 'none';
-        connectionBody.style.display = hidden ? '' : 'none';
-        connectionToggle.textContent = hidden ? 'Hide' : 'Show';
+        const nextHidden = !hidden;
+        connectionBody.style.display = nextHidden ? 'none' : '';
+        connectionToggle.textContent = nextHidden ? 'Show' : 'Hide';
+        localStorage.setItem('medtronic-connection-hidden', String(nextHidden));
       });
     }
 
