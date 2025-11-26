@@ -923,7 +923,21 @@ if __name__ == "__main__":
     # Bind to loopback by default so the dev server is not exposed to the network unless explicitly
     # configured. Override via VALIDATION_UI_HOST/VALIDATION_UI_PORT when remote access is required.
     import os
+    import threading
+    import time
+    import webbrowser
 
     host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
     port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
+
+    def _open_browser() -> None:
+        # Small delay to allow the server to start before opening the browser.
+        time.sleep(1)
+        try:
+            webbrowser.open(f"http://{host}:{port}")
+        except Exception:
+            # If the browser fails to open (e.g., kiosk or server build), just continue running.
+            pass
+
+    threading.Thread(target=_open_browser, daemon=True).start()
     app.run(host=host, port=port, debug=False)
