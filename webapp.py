@@ -36,10 +36,16 @@ def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional
 
     raw_bytes = file_storage.stream.read()
     suffix = Path(filename).suffix
+    text: Optional[str]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(raw_bytes)
         tmp.flush()
-        text = load_text_document(Path(tmp.name))
+        try:
+            text = load_text_document(Path(tmp.name))
+        except Exception:
+            # If extraction fails (e.g., optional deps missing), still keep the upload so it
+            # can be selected and persisted immediately.
+            text = ""
     return text, raw_bytes, suffix, filename
 
 
