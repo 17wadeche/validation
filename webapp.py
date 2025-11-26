@@ -74,15 +74,21 @@ def _extract_questions_from_json(payload: str) -> List[str]:
     return questions
 
 
-def _gather_examples(uploaded_files, saved_examples: List[StoredFile]) -> Tuple[List[Example], List[StoredFile]]:
+def _gather_examples(
+    uploaded_files,
+    saved_examples: List[StoredFile],
+    *,
+    tag: Optional[str] = None,
+) -> Tuple[List[Example], List[StoredFile]]:
     examples: List[Example] = []
     stored_examples: List[StoredFile] = []
 
     for file_storage in uploaded_files or []:
         content, raw_bytes, _, filename = _read_upload(file_storage)
         if content and raw_bytes is not None and filename:
-            examples.append(Example(title=filename, context="", output=content))
-            stored_examples.append(StoredFile.from_bytes(filename, raw_bytes))
+            label = f"[{tag}] {filename}" if tag else filename
+            examples.append(Example(title=label, context="", output=content))
+            stored_examples.append(StoredFile.from_bytes(label, raw_bytes))
 
     for saved in saved_examples:
         content, raw_bytes, _, name = _read_saved_file(saved)
@@ -93,20 +99,44 @@ def _gather_examples(uploaded_files, saved_examples: List[StoredFile]) -> Tuple[
     return examples, stored_examples
 
 
-def _gather_code_context(code_files, inline_code: str) -> str:
-    snippets: List[str] = []
-    for file_storage in code_files or []:
-        if not file_storage or not file_storage.filename:
-            continue
-        try:
-            text = file_storage.stream.read().decode("utf-8")
-        except Exception:
-            continue
-        if text.strip():
-            snippets.append(f"\n# File: {file_storage.filename}\n{text.strip()}\n")
+def _format_code_section(label: str, snippets: List[str]) -> str:
+    if not snippets:
+        return ""
+    return f"## {label}\n" + "\n".join(snippets)
+
+
+def _gather_code_context(
+    current_code_files, inline_code: str, old_code_files=None, new_code_files=None
+) -> str:
+    snippets_current: List[str] = []
+    snippets_old: List[str] = []
+    snippets_new: List[str] = []
+
+    def _collect(files, bucket: List[str], tag: str):
+        for file_storage in files or []:
+            if not file_storage or not file_storage.filename:
+                continue
+            try:
+                text = file_storage.stream.read().decode("utf-8")
+            except Exception:
+                continue
+            if text.strip():
+                bucket.append(f"\n# {tag} File: {file_storage.filename}\n{text.strip()}\n")
+
+    _collect(current_code_files, snippets_current, "Current")
+    _collect(old_code_files or [], snippets_old, "Previous")
+    _collect(new_code_files or [], snippets_new, "Updated")
+
+    sections = [
+        _format_code_section("Current code/context", snippets_current),
+        _format_code_section("Previous version (for updates)", snippets_old),
+        _format_code_section("Updated version (for updates)", snippets_new),
+    ]
+
     if inline_code.strip():
-        snippets.append(inline_code.strip())
-    return "\n".join(snippets).strip()
+        sections.append(_format_code_section("Additional notes", [inline_code.strip()]))
+
+    return "\n\n".join(part for part in sections if part).strip()
 
 
 def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[str]:
@@ -173,7 +203,23 @@ def _build_prompt_from_request(
         stored_template = StoredFile.from_bytes(template_name, template_bytes)
 
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
-    code_context = _gather_code_context(files.getlist("code_files"), form.get("code_context", ""))
+
+    if release_type == "update":
+        old_examples, old_stored = _gather_examples(
+            files.getlist("examples_old"), [], tag="OLD"
+        )
+        new_examples, new_stored = _gather_examples(
+            files.getlist("examples_new"), [], tag="NEW"
+        )
+        examples = examples + old_examples + new_examples
+        stored_examples = stored_examples + old_stored + new_stored
+
+    code_context = _gather_code_context(
+        files.getlist("code_files"),
+        form.get("code_context", ""),
+        old_code_files=files.getlist("code_files_old") if release_type == "update" else None,
+        new_code_files=files.getlist("code_files_new") if release_type == "update" else None,
+    )
     prompt = build_prompt(
         template_text or "",
         examples,
@@ -228,9 +274,12 @@ def index():
     if request.method == "POST":
         draft_json_from_form = request.form.get("draft_json", "")
         keep_saved_template = request.form.get("remove_template") != "on"
+        clear_saved_examples = request.form.get("clear_examples") == "on"
         kept_saved_examples: List[StoredFile] = []
         for idx, saved_example in enumerate(stored_inputs.examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
+            if clear_saved_examples:
+                continue
             if keep_flag is None or keep_flag == "on":
                 kept_saved_examples.append(saved_example)
 
@@ -421,7 +470,10 @@ def index():
 
         if request.form.get("remember_inputs") == "on":
             final_template = stored_template if stored_template else final_template
-            final_examples = stored_examples
+            if clear_saved_examples:
+                final_examples = stored_examples
+            else:
+                final_examples = kept_saved_examples + stored_examples
         persisted_inputs = SavedInputs(template=final_template, examples=final_examples)
         save_inputs(persisted_inputs)
 
@@ -618,7 +670,7 @@ TEMPLATE = """
               <input type=\"radio\" name=\"release_type\" value=\"update\" {% if release_type == 'update' %}checked{% endif %}>
               <span>Update/change: upload prior + current code/files so deltas are clear</span>
             </label>
-            <p style=\"margin: 0; color: #475569;\">For updates, include comparison inputs (old vs new code or specs) in Examples or Code context so MedtronicGPT can highlight changes and avoid overwriting unchanged sections.</p>
+            <p style=\"margin: 0; color: #475569;\">For updates, upload old vs new files (comparison slots will appear below) so MedtronicGPT can highlight changes and avoid overwriting unchanged sections.</p>
           </div>
         </div>
 
@@ -636,15 +688,42 @@ TEMPLATE = """
                   <span>Reuse {{ example.name }}</span>
                 </label>
               {% endfor %}
-              <p style=\"margin: 8px 0 0;\">Uncheck to drop saved examples; upload to add or replace.</p>
+              <label class=\"checkbox\" style=\"margin-top: 10px;\">
+                <input type=\"checkbox\" name=\"clear_examples\">
+                <span>Clear all saved examples</span>
+              </label>
+              <p style=\"margin: 8px 0 0;\">Uncheck to drop saved examples, or clear everything to start fresh.</p>
             </div>
           {% endif %}
+        </div>
+
+        <div class=\"card update-only\" style=\"display:none;\">
+          <div class=\"tagline\"><span class=\"pill\">Update artifacts</span><span>Tag old vs new for GPT</span></div>
+          <p style=\"margin: 8px 0 10px; color: #475569;\">For updates, attach prior and current references so the agent can focus on deltas.</p>
+          <div style=\"display: grid; gap: 10px;\">
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Previous version files</label>
+              <input class=\"input\" type=\"file\" name=\"examples_old\" multiple>
+            </div>
+            <div>
+              <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Current version files</label>
+              <input class=\"input\" type=\"file\" name=\"examples_new\" multiple>
+            </div>
+          </div>
         </div>
 
         <div class=\"card\">
           <div class=\"tagline\"><span class=\"pill\">Code context</span><span>Provide supporting snippets</span></div>
           <div style=\"margin-top: 12px;\">
             <input class=\"input\" type=\"file\" name=\"code_files\" multiple>
+          </div>
+          <div class=\"update-only\" style=\"margin-top: 12px; display:none;\">
+            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Previous code</label>
+            <input class=\"input\" type=\"file\" name=\"code_files_old\" multiple>
+          </div>
+          <div class=\"update-only\" style=\"margin-top: 12px; display:none;\">
+            <label class=\"pill\" style=\"margin-bottom: 6px; display: inline-flex;\">Updated code</label>
+            <input class=\"input\" type=\"file\" name=\"code_files_new\" multiple>
           </div>
           <div style=\"margin-top: 10px;\">
             <textarea name=\"code_context\" placeholder=\"Paste relevant code snippets, configs, and notes...\">{{ code_context }}</textarea>
@@ -804,6 +883,32 @@ TEMPLATE = """
     const modelToggle = document.getElementById('toggleModelCard');
     const modelBody = document.getElementById('modelCardBody');
     const releaseValue = '{{ release_type }}';
+    const updateSections = Array.from(document.querySelectorAll('.update-only'));
+    const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
+
+    let answersReleaseInput = null;
+    let chatReleaseInput = null;
+
+    function syncUpdateSections(value) {
+      const show = value === 'update';
+      updateSections.forEach((node) => {
+        node.style.display = show ? '' : 'none';
+      });
+    }
+
+    function syncReleaseInputs(value) {
+      if (answersReleaseInput) answersReleaseInput.value = value;
+      if (chatReleaseInput) chatReleaseInput.value = value;
+    }
+
+    syncUpdateSections(releaseValue);
+    releaseRadios.forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const value = e.target.value;
+        syncUpdateSections(value);
+        syncReleaseInputs(value);
+      });
+    });
 
     if (answersForm) {
       const rel = document.createElement('input');
@@ -811,6 +916,7 @@ TEMPLATE = """
       rel.name = 'release_type';
       rel.value = releaseValue;
       answersForm.prepend(rel);
+      answersReleaseInput = rel;
     }
 
     if (chatForm) {
@@ -819,6 +925,7 @@ TEMPLATE = """
       relChat.name = 'release_type';
       relChat.value = releaseValue;
       chatForm.prepend(relChat);
+      chatReleaseInput = relChat;
     }
     if (mainForm && loading) {
       mainForm.addEventListener('submit', (event) => {
