@@ -115,15 +115,15 @@ def _gather_examples(
 
     for file_storage in uploaded_files or []:
         content, raw_bytes, _, filename = _read_upload(file_storage)
-        if content and raw_bytes is not None and filename:
+        if raw_bytes is not None and filename:
             label = f"[{tag}] {filename}" if tag else filename
-            examples.append(Example(title=label, context="", output=content))
+            examples.append(Example(title=label, context="", output=content or ""))
             stored_examples.append(StoredFile.from_bytes(label, raw_bytes))
 
     for saved in saved_examples:
         content, raw_bytes, _, name = _read_saved_file(saved)
-        if content and raw_bytes is not None and name:
-            examples.append(Example(title=name, context="", output=content))
+        if raw_bytes is not None and name:
+            examples.append(Example(title=name, context="", output=content or ""))
             stored_examples.append(StoredFile.from_bytes(name, raw_bytes))
 
     return examples, _dedupe_by_name(stored_examples)
@@ -574,8 +574,10 @@ def index():
             final_templates = _dedupe_by_name([stored_template] + final_templates)
             selected_template_name = stored_template.name
 
-        if request.form.get("remember_inputs") == "on":
-            final_examples = kept_saved_examples + stored_examples
+        # Always carry forward newly uploaded examples so they stay available
+        # for selection on the next render. Users can uncheck or remove them as
+        # needed, but uploads should persist by default.
+        final_examples = _dedupe_by_name(kept_saved_examples + stored_examples)
         persisted_inputs = SavedInputs(
             templates=final_templates,
             examples=_dedupe_by_name(final_examples),
