@@ -504,34 +504,6 @@ def index():
                             except MedtronicGPTError as exc:
                                 error = str(exc)
 
-        if action == "coverage_refine":
-            if not template_text.strip() or not draft_json_from_form.strip():
-                error = "Run generation first so we have a template and answers to check."
-            else:
-                missing_tokens = _compute_missing_placeholders(
-                    template_text, draft_json_from_form
-                )
-                if not missing_tokens:
-                    error = "No missing placeholders detected—coverage is complete."
-                elif not client:
-                    error = "Provide MedtronicGPT credentials to fill the remaining placeholders."
-                else:
-                    update_prompt = build_update_prompt(
-                        template_text or "",
-                        examples,
-                        code_context,
-                        draft_json_from_form,
-                        answered=[],
-                        plan_context=plan_text,
-                        release_type=release_type,
-                        missing_tokens=missing_tokens,
-                    )
-                    try:
-                        draft = client.generate_completion(update_prompt, model=model)
-                        draft_questions = _extract_questions_from_json(draft)
-                    except MedtronicGPTError as exc:
-                        error = str(exc)
-
         if action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
             if user_message:
@@ -623,9 +595,42 @@ def index():
             )
             save_credentials(stored)
 
+        coverage_note = None
+        missing_placeholders: List[str] = []
         coverage_source = draft or draft_json_from_form
         if template_text and coverage_source:
             missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
+
+            # Auto-refine coverage when credentials are available to fill any
+            # remaining template placeholders without extra user clicks.
+            if (
+                missing_placeholders
+                and client
+                and action in {"build", "refine", "answers"}
+                and not error
+            ):
+                update_prompt = build_update_prompt(
+                    template_text or "",
+                    examples,
+                    code_context,
+                    coverage_source,
+                    answered=answered if "answered" in locals() else [],
+                    plan_context=plan_text,
+                    release_type=release_type,
+                    missing_tokens=missing_placeholders,
+                )
+                try:
+                    draft = client.generate_completion(update_prompt, model=model)
+                    draft_json_from_form = draft
+                    draft_questions = _extract_questions_from_json(draft)
+                    coverage_source = draft
+                    missing_placeholders = _compute_missing_placeholders(
+                        template_text, coverage_source
+                    )
+                except MedtronicGPTError as exc:
+                    error = error or str(exc)
+            elif missing_placeholders and not client:
+                coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
 
     return render_template_string(
         TEMPLATE,
@@ -640,6 +645,7 @@ def index():
         draft_questions=draft_questions,
         code_context=code_context_text,
         draft_json=draft_json_from_form,
+        coverage_note=coverage_note,
         template_text=template_text,
         missing_placeholders=missing_placeholders,
         release_type=release_type,
@@ -1005,7 +1011,7 @@ TEMPLATE = """
         <div class="section">
           <div class="section-head">
             <h2>Coverage</h2>
-            <p>See which template tokens still need answers.</p>
+            <p>Missing placeholders are auto-sent to MedtronicGPT when possible.</p>
           </div>
           <div class="card" style="margin-top: 10px;">
           <div class="tagline"><span class="pill">Coverage check</span><span>Template placeholders</span></div>
@@ -1016,25 +1022,11 @@ TEMPLATE = """
                 <li>{{ token }}</li>
               {% endfor %}
             </ul>
-            <form method="post" id="coverageForm" style="margin-top: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <input type="hidden" name="action" value="coverage_refine">
-              <input type="hidden" name="selected_template" value="{{ selected_template_name }}">
-              <input type="hidden" name="remember_inputs" value="on">
-              <input type="hidden" name="release_type" value="{{ release_type }}">
-              <input type="hidden" name="plan_text" value="{{ plan_text }}">
-              <input type="hidden" name="code_context" value="{{ code_context }}">
-              <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
-              <input type="hidden" name="use_model" value="on">
-              <input type="hidden" name="model" value="{{ defaults.model }}">
-              <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
-              <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
-              <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
-              <input type="hidden" name="subscription_key" value="{{ stored.subscription_key }}">
-              <input type="hidden" name="api_token" value="{{ stored.api_token }}">
-              <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
-              <button class="btn btn-primary" type="submit">Ask GPT to fill remaining placeholders</button>
-              <div class="pill">Coverage details will be rechecked after the update.</div>
-            </form>
+            {% if coverage_note %}
+              <p style="margin: 10px 0 0; color: #ef4444;">{{ coverage_note }}</p>
+            {% else %}
+              <p style="margin: 10px 0 0; color: #475569;">Auto-refinement has been requested; coverage will refresh on completion.</p>
+            {% endif %}
           {% else %}
             <p style="margin: 6px 0 0; color: #0f172a;">All detected placeholders have values based on the current answers.</p>
           {% endif %}
@@ -1088,7 +1080,6 @@ TEMPLATE = """
     const mainForm = document.getElementById('mainForm');
     const answersForm = document.getElementById('answersForm');
     const chatForm = document.getElementById('chatForm');
-    const coverageForm = document.getElementById('coverageForm');
     const connectionToggle = document.getElementById('toggle-connection');
     const connectionBody = document.getElementById('connection-body');
     const removeExampleInput = document.getElementById('removeExampleInput');
@@ -1202,11 +1193,6 @@ TEMPLATE = """
         if (actionValue === 'refine') {
           loading.classList.add('visible');
         }
-      });
-    }
-    if (coverageForm && loading) {
-      coverageForm.addEventListener('submit', () => {
-        loading.classList.add('visible');
       });
     }
     if (chatForm && loading) {
