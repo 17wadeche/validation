@@ -1226,6 +1226,28 @@ TEMPLATE = """
     const toggleFriendly = document.getElementById('viewToggleFriendly');
     const copyAll = document.getElementById('copyAll');
 
+    function rawDraftText() {
+      if (rawDraft === null || rawDraft === undefined) return '';
+      if (typeof rawDraft === 'string') return rawDraft;
+      try {
+        return JSON.stringify(rawDraft, null, 2);
+      } catch (e) {
+        return '' + rawDraft;
+      }
+    }
+
+    function parseDraft() {
+      if (rawDraft === null || rawDraft === undefined || rawDraft === '') return null;
+      if (typeof rawDraft === 'string') {
+        try {
+          return JSON.parse(rawDraft);
+        } catch (e) {
+          return null;
+        }
+      }
+      return rawDraft;
+    }
+
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -1253,11 +1275,9 @@ TEMPLATE = """
     }
 
     function renderFriendly() {
-      if (!friendlyView || rawDraft === null) return;
-      let parsed;
-      try {
-        parsed = JSON.parse(rawDraft);
-      } catch (e) {
+      if (!friendlyView) return;
+      const parsed = parseDraft();
+      if (!parsed) {
         friendlyView.textContent = 'Could not parse JSON. Use the JSON view to copy manually.';
         return;
       }
@@ -1266,15 +1286,15 @@ TEMPLATE = """
 
       const sections = [];
       if (answers.length) {
-        const list = answers.map((item) => {
-          if (item.placeholder && item.replacement !== undefined) {
-            return `<li><strong>${escapeHtml(item.placeholder)}</strong> → ${formatValue(item.replacement)}</li>`;
-          }
-          if (item.question && item.answer) {
-            return `<li><strong>${escapeHtml(item.question)}</strong> → ${formatValue(item.answer)}</li>`;
-          }
-          return '';
-        }).filter(Boolean).join('');
+        const list = answers
+          .map((item) => {
+            const placeholder = item.placeholder || item.question;
+            const value = item.replacement !== undefined ? item.replacement : item.answer;
+            if (!placeholder) return '';
+            return `<li><strong>${escapeHtml(placeholder)}</strong> → ${formatValue(value)}</li>`;
+          })
+          .filter(Boolean)
+          .join('');
         if (list) {
           sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
         }
@@ -1303,6 +1323,7 @@ TEMPLATE = """
       });
       // default to friendly view when available
       renderFriendly();
+      jsonView.textContent = rawDraftText();
       jsonView.style.display = 'none';
       friendlyView.style.display = 'block';
     }
@@ -1310,7 +1331,7 @@ TEMPLATE = """
     if (copyAll && rawDraft !== null) {
       copyAll.addEventListener('click', async () => {
         try {
-          await navigator.clipboard.writeText(rawDraft);
+          await navigator.clipboard.writeText(rawDraftText());
           copyAll.textContent = 'Copied!';
           setTimeout(() => (copyAll.textContent = 'Copy all'), 1200);
         } catch (e) {
