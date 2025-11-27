@@ -271,6 +271,7 @@ def index():
     code_context_text: str = ""
     template_text: str = ""
     missing_placeholders: List[str] = []
+    coverage_note: Optional[str] = None
     stored_inputs: SavedInputs = load_saved_inputs()
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
