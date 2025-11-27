@@ -49,7 +49,14 @@ def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
             seen.add(tmpl.name)
             unique_templates.append(tmpl)
         templates = unique_templates
-        examples = [StoredFile(**item) for item in raw.get("examples", [])]
+        examples_raw = [StoredFile(**item) for item in raw.get("examples", [])]
+        examples: List[StoredFile] = []
+        seen_examples = set()
+        for ex in examples_raw:
+            if ex.name in seen_examples:
+                continue
+            seen_examples.add(ex.name)
+            examples.append(ex)
         return SavedInputs(templates=templates, examples=examples)
     except Exception:
         return SavedInputs()
