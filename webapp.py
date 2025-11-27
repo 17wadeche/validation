@@ -662,7 +662,7 @@ TEMPLATE = """
 <head>
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
-  <title>Validation Draft Builder</title>
+  <title>Medtronic Validation Draft Builder</title>
   <style>
     :root {
       --bg: #f5f7fb;
@@ -796,8 +796,7 @@ TEMPLATE = """
     </div>
     <div class=\"header\">
       <div>
-        <div class=\"badge\">Medtronic Validation</div>
-        <h1>Validation Draft Builder</h1>
+        <div class=\"badge\">Medtronic Validation Draft Builder</div>
       </div>
     </div>
 
@@ -902,11 +901,10 @@ TEMPLATE = """
         </div>
 
         <div class=\"panel\" data-step=\"Step 4\" id=\"connection-card\">
-          <div style=\"display:flex; align-items:center; justify-content:space-between; gap:10px;\">
-            <div>
-              <h3 style=\"margin:6px 0 2px;\">MedtronicGPT connection</h3>
-              <p class=\"muted\" style=\"margin:0;\">Provide credentials to send prompts; uncheck to generate locally.</p>
-            </div>
+            <div style=\"display:flex; align-items:center; justify-content:space-between; gap:10px;\">
+              <div>
+                <h3 style=\"margin:6px 0 2px;\">MedtronicGPT connection</h3>
+              </div>
             <button type=\"button\" id=\"toggle-connection\" class=\"btn btn-ghost\" style=\"padding:8px 10px;\">Hide</button>
           </div>
           <div id=\"connection-body\" style=\"margin-top: 12px;\">
@@ -1014,7 +1012,6 @@ TEMPLATE = """
         <div class="section">
           <div class="section-head">
             <h2>Coverage</h2>
-            <p>Missing placeholders are auto-sent to MedtronicGPT when possible.</p>
           </div>
           <div class="card" style="margin-top: 10px;">
           <div class="tagline"><span class="pill">Coverage check</span><span>Template placeholders</span></div>
@@ -1025,11 +1022,9 @@ TEMPLATE = """
                 <li>{{ token }}</li>
               {% endfor %}
             </ul>
-            {% if coverage_note %}
-              <p style="margin: 10px 0 0; color: #ef4444;">{{ coverage_note }}</p>
-            {% else %}
-              <p style="margin: 10px 0 0; color: #475569;">Auto-refinement has been requested; coverage will refresh on completion.</p>
-            {% endif %}
+              {% if coverage_note %}
+                <p style="margin: 10px 0 0; color: #ef4444;">{{ coverage_note }}</p>
+              {% endif %}
           {% else %}
             <p style="margin: 6px 0 0; color: #0f172a;">All detected placeholders have values based on the current answers.</p>
           {% endif %}
