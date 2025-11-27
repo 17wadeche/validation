@@ -1045,6 +1045,8 @@ TEMPLATE = """
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
     const rememberInputs = document.querySelector('input[name="remember_inputs"]');
+    const templateInput = document.querySelector('input[name="template_file"]');
+    const examplesInput = document.querySelector('input[name="examples"]');
 
     function submitWithAction(actionValue) {
       if (!mainForm) return;
@@ -1088,6 +1090,20 @@ TEMPLATE = """
           if (rememberInputs) rememberInputs.checked = true;
           submitWithAction('remove_example');
         });
+      });
+    }
+
+    if (templateInput && mainForm) {
+      templateInput.addEventListener('change', () => {
+        if (rememberInputs) rememberInputs.checked = true;
+        submitWithAction('save_template');
+      });
+    }
+
+    if (examplesInput && mainForm) {
+      examplesInput.addEventListener('change', () => {
+        if (rememberInputs) rememberInputs.checked = true;
+        submitWithAction('save_examples');
       });
     }
 
