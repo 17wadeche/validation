@@ -201,10 +201,12 @@ def build_update_prompt(
     answered: list[tuple[str, str]] | None = None,
     plan_context: str | None = None,
     release_type: str = "initial",
+    missing_tokens: list[str] | None = None,
 ) -> str:
     """Ask the model to merge new answers into an existing mapping JSON."""
 
     answered = answered or []
+    missing_tokens = [tok for tok in (missing_tokens or []) if tok]
 
     prompt_sections = [
         "You are an AI assistant that updates Medtronic validation mappings.",
@@ -244,6 +246,14 @@ def build_update_prompt(
             "\n## Drafting plan\n"
             "Use this plan when deciding where to place generated content.\n"
             + plan_context.strip()
+        )
+
+    if missing_tokens:
+        prompt_sections.append(
+            "\n## Missing placeholders to fill\n"
+            "Focus on filling these remaining template tokens using context."
+            " Leave a token blank only if it truly cannot be inferred.\n"
+            + "\n".join(f"- {tok}" for tok in missing_tokens)
         )
 
     prompt_sections.append(
