@@ -1056,7 +1056,11 @@ TEMPLATE = """
             <div style=\"margin-top: 10px; display:grid; gap:10px;\">
               <div class=\"field\">
                 <label for=\"base_url\" class=\"muted\" style=\"font-weight:600;\">Base URL</label>
-                <input class=\"input\" id=\"base_url\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\">
+                <input class=\"input\" id=\"base_url\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\" list=\"base_url_options\"> 
+                <datalist id=\"base_url_options\"> 
+                  <option value=\"https://api.gpt.medtronic.com\"></option> 
+                  <option value=\"https://api.gpt-dev.medtronic.com\"></option> 
+                </datalist> 
               </div>
               <div class=\"field\">
                 <label for=\"path_template\" class=\"muted\" style=\"font-weight:600;\">Path template</label>
