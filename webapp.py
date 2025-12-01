@@ -879,6 +879,10 @@ TEMPLATE = """
     .btn:hover { transform: translateY(-1px); }
     .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: #eef2ff; border: 1px solid rgba(37,99,235,0.18); color: var(--muted); font-size: 12px; }
     .output { white-space: pre-wrap; background: #f8fafc; border: 1px solid var(--border); padding: 16px; border-radius: 14px; min-height: 140px; color: var(--text); }
+    .table-simple { width: 100%; border-collapse: collapse; margin: 8px 0; }
+    .table-simple th, .table-simple td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; font-size: 13px; }
+    .table-simple th { background: #f1f5f9; color: #0f172a; }
+    .table-simple tr:nth-child(even) td { background: #f8fafc; }
     .chat { margin-top: 6px; }
     .error { border: 1px solid #ef4444; color: #991b1b; background: #fee2e2; padding: 12px 14px; border-radius: 12px; }
     .tagline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); }
@@ -1479,9 +1483,36 @@ TEMPLATE = """
         .replace(/'/g, '&#39;');
     }
 
+    function asTableIfPossible(arr) {
+      if (!Array.isArray(arr) || !arr.length) return null;
+      const objectRows = arr.filter((item) => item && typeof item === 'object' && !Array.isArray(item));
+      if (!objectRows.length || objectRows.length !== arr.length) return null;
+
+      const headers = Array.from(
+        objectRows.reduce((set, row) => {
+          Object.keys(row).forEach((key) => set.add(key));
+          return set;
+        }, new Set())
+      );
+      if (!headers.length) return null;
+
+      const headerRow = headers.map((h) => `<th>${escapeHtml(h)}</th>`).join('');
+      const bodyRows = objectRows
+        .map((row) => {
+          const cells = headers
+            .map((h) => `<td>${formatValue(row[h], 1)}</td>`)
+            .join('');
+          return `<tr>${cells}</tr>`;
+        })
+        .join('');
+      return `<table class="table-simple"><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table>`;
+    }
+
     function formatValue(value, depth = 0) {
       if (value === null || value === undefined || value === '') return '<span style="color:#94a3b8;">(empty)</span>';
       if (Array.isArray(value)) {
+        const maybeTable = asTableIfPossible(value);
+        if (maybeTable) return maybeTable;
         const items = value
           .map((entry) => `<li>${formatValue(entry, depth + 1)}</li>`)
           .join('');
