@@ -203,12 +203,14 @@ def build_update_prompt(
     plan_context: str | None = None,
     release_type: str = "initial",
     missing_tokens: list[str] | None = None,
+    questions_to_answer: list[str] | None = None,
     best_effort: bool = False,
 ) -> str:
     """Ask the model to merge new answers into an existing mapping JSON."""
 
     answered = answered or []
     missing_tokens = [tok for tok in (missing_tokens or []) if tok]
+    questions_to_answer = [q for q in (questions_to_answer or []) if q]
 
     prompt_sections = [
         "You are an AI assistant that updates Medtronic validation mappings.",
@@ -258,6 +260,14 @@ def build_update_prompt(
             + "\n".join(f"- {tok}" for tok in missing_tokens)
         )
 
+    if questions_to_answer:
+        prompt_sections.append(
+            "\n## Questions that still need answers\n"
+            "Try to answer each of these using the template, examples, code, and prior JSON."
+            " If you must guess, tag the answer with `confidence: \"low\"` and keep a short clarifying question.\n"
+            + "\n".join(f"- {q}" for q in questions_to_answer)
+        )
+
     prompt_sections.append(
         "\n## Program code context\n"
         "Ground replacements in the provided code details.\n"
@@ -284,6 +294,7 @@ def build_update_prompt(
         "- Include a `coverage` object listing any `missing_tokens` and `unmapped_sections` that are still unresolved.\n"
         "- Do not invent person names or signatures; leave them blank or add a clarifying question.\n"
         "- If a placeholder appears multiple times, ensure the same value is reused consistently.\n"
+        "- Attempt to answer existing questions before returning them; move answered items into the answers list and drop them from questions.\n"
     )
 
     if best_effort:
@@ -293,6 +304,7 @@ def build_update_prompt(
             " If uncertain, still propose a value and tag that answer with `confidence: \"low\"`,"
             " and keep a clarifying question so the user can confirm."
             " Leave blanks only when inference is impossible (e.g., person names)."
+            " Also answer any remaining questions using the same best-effort approach before returning them to the user."
         )
 
     return "\n\n".join(prompt_sections).strip() + "\n"

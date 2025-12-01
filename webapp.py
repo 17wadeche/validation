@@ -637,6 +637,39 @@ def index():
             elif missing_placeholders and not client:
                 coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
 
+        # If GPT returned clarifying questions, try to answer them automatically
+        # with a best-effort refinement so users see fewer unanswered items.
+        if (
+            draft_questions
+            and client
+            and (draft or draft_json_from_form)
+            and action in {"build", "refine", "answers"}
+            and not error
+        ):
+            question_prompt = build_update_prompt(
+                template_text or "",
+                examples,
+                code_context,
+                draft or draft_json_from_form,
+                answered=answered if "answered" in locals() else [],
+                plan_context=plan_text,
+                release_type=release_type,
+                missing_tokens=missing_placeholders,
+                questions_to_answer=draft_questions,
+                best_effort=True,
+            )
+            try:
+                draft = client.generate_completion(question_prompt, model=model)
+                draft_json_from_form = draft
+                draft_questions = _extract_questions_from_json(draft)
+                coverage_source = draft
+                if template_text:
+                    missing_placeholders = _compute_missing_placeholders(
+                        template_text, coverage_source
+                    )
+            except MedtronicGPTError as exc:
+                error = error or str(exc)
+
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
