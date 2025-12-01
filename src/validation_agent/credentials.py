@@ -18,6 +18,7 @@ class StoredCredentials:
     api_version: str = "3.0"
     base_url: str = "https://api.gpt.medtronic.com"
     path_template: str = "/models/{model}"
+    model: str = ""
 
 
 def load_credentials(store: Path = DEFAULT_STORE) -> StoredCredentials:

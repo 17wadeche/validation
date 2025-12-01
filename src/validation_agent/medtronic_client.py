@@ -25,6 +25,7 @@ class MedtronicGPTClient:
     DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
+    DEFAULT_MODEL = "gpt-41"
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_TOKENS = 32768
 
@@ -32,7 +33,7 @@ class MedtronicGPTClient:
         self,
         prompt: str | None = None,
         *,
-        model: str = "gpt-41",
+        model: str | None = None,
         messages: list[dict] | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
@@ -48,8 +49,10 @@ class MedtronicGPTClient:
                 raise MedtronicGPTError("Message history is empty; provide at least one message.")
             payload_messages = messages
 
+        chosen_model = model or self.DEFAULT_MODEL
+
         def _send_once(current_api_token: str) -> str:
-            path = self.path_template.format(model=parse.quote(model, safe=""))
+            path = self.path_template.format(model=parse.quote(chosen_model, safe=""))
             if not path.startswith("/"):
                 path = f"/{path}"
             url = f"{self.base_url.rstrip('/')}{path}"

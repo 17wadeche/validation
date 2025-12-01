@@ -283,7 +283,7 @@ def index():
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
         "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
         "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
-        "model": "gpt-41",
+        "model": MedtronicGPTClient.DEFAULT_MODEL,
     }
 
     stored = load_credentials()
@@ -292,6 +292,7 @@ def index():
             "base_url": stored.base_url or defaults["base_url"],
             "api_version": stored.api_version or defaults["api_version"],
             "path_template": stored.path_template or defaults["path_template"],
+            "model": stored.model or defaults["model"],
         }
     )
 
@@ -440,6 +441,7 @@ def index():
                     api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
                     base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
                     path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
+                    model=model,
                 )
                 save_credentials(stored)
 
@@ -1000,7 +1002,7 @@ TEMPLATE = """
               </div>
               <div class=\"field\">
                 <label for=\"model\" class=\"muted\" style=\"font-weight:600;\">Model</label>
-                <input class=\"input\" id=\"model\" type=\"text\" name=\"model\" placeholder=\"Model (gpt-41)\" value=\"{{ defaults.model }}\">
+                <input class=\"input\" id=\"model\" type=\"text\" name=\"model\" placeholder=\"Model (e.g., gpt-41)\" value=\"{{ defaults.model }}\">
               </div>
               <div class=\"field\">
                 <label for=\"subscription_key\" class=\"muted\" style=\"font-weight:600;\">Subscription key</label>
