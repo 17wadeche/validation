@@ -600,83 +600,75 @@ def index():
             )
             save_credentials(stored)
 
-        # If GPT surfaced placeholder-style questions (e.g., a long list of <B1>,
-        # <NF1>, etc.), treat them as missing tokens to auto-fill instead of
-        # showing them back to the user. This keeps "try your best" questions
-        # in the background.
-        placeholder_tokens_from_questions: List[str] = []
-        if draft_questions:
-            placeholder_tokens_from_questions = sorted(
-                {
-                    token
-                    for q in draft_questions
-                    for token in re.findall(r"<[^>]+>", q)
-                }
-            )
-            if placeholder_tokens_from_questions:
-                draft_questions = [
-                    q
-                    for q in draft_questions
-                    if not any(token in q for token in placeholder_tokens_from_questions)
-                ]
-
         coverage_note = None
         missing_placeholders: List[str] = []
         coverage_source = draft or draft_json_from_form
-        if template_text and coverage_source:
-            missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
+
+        def _collect_placeholder_tokens(questions: List[str]) -> List[str]:
+            return sorted(
+                {
+                    token
+                    for q in questions
+                    for token in re.findall(r"<[^>]+>", q)
+                }
+            )
+
+        def _filter_placeholder_questions(
+            questions: List[str], tokens: List[str]
+        ) -> List[str]:
+            if not tokens:
+                return questions
+            return [q for q in questions if not any(token in q for token in tokens)]
+
+        # Run up to three best-effort refinements so remaining placeholders and
+        # clarifying questions are answered before the user sees them.
+        max_refine_attempts = 3
+        refine_attempt = 0
+        last_missing: Optional[List[str]] = None
+        last_questions: Optional[List[str]] = None
+        while (
+            client
+            and (coverage_source or draft or draft_json_from_form)
+            and action in {"build", "refine", "answers"}
+            and refine_attempt < max_refine_attempts
+            and not error
+        ):
+            placeholder_tokens_from_questions = _collect_placeholder_tokens(
+                draft_questions or []
+            )
+            if draft_questions:
+                draft_questions = _filter_placeholder_questions(
+                    draft_questions, placeholder_tokens_from_questions
+                )
+
+            if template_text and coverage_source:
+                missing_placeholders = _compute_missing_placeholders(
+                    template_text, coverage_source
+                )
+            else:
+                missing_placeholders = []
 
             if placeholder_tokens_from_questions:
                 missing_placeholders = sorted(
                     set(missing_placeholders + placeholder_tokens_from_questions)
                 )
 
-            # Auto-refine coverage when credentials are available to fill any
-            # remaining template placeholders without extra user clicks.
-            if (
-                missing_placeholders
-                and client
-                and action in {"build", "refine", "answers"}
-                and not error
-            ):
-                update_prompt = build_update_prompt(
-                    template_text or "",
-                    examples,
-                    code_context,
-                    coverage_source,
-                    answered=answered if "answered" in locals() else [],
-                    plan_context=plan_text,
-                    release_type=release_type,
-                    missing_tokens=missing_placeholders,
-                    best_effort=True,
-                )
-                try:
-                    draft = client.generate_completion(update_prompt, model=model)
-                    draft_json_from_form = draft
-                    draft_questions = _extract_questions_from_json(draft)
-                    coverage_source = draft
-                    missing_placeholders = _compute_missing_placeholders(
-                        template_text, coverage_source
-                    )
-                except MedtronicGPTError as exc:
-                    error = error or str(exc)
-            elif missing_placeholders and not client:
-                coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
+            # Nothing left to refine.
+            if not missing_placeholders and not draft_questions:
+                break
 
-        # If GPT returned clarifying questions, try to answer them automatically
-        # with a best-effort refinement so users see fewer unanswered items.
-        if (
-            draft_questions
-            and client
-            and (draft or draft_json_from_form)
-            and action in {"build", "refine", "answers"}
-            and not error
-        ):
-            question_prompt = build_update_prompt(
+            # Avoid repeated calls if nothing changed between attempts.
+            if (
+                last_missing == missing_placeholders
+                and last_questions == (draft_questions or [])
+            ):
+                break
+
+            update_prompt = build_update_prompt(
                 template_text or "",
                 examples,
                 code_context,
-                draft or draft_json_from_form,
+                coverage_source,
                 answered=answered if "answered" in locals() else [],
                 plan_context=plan_text,
                 release_type=release_type,
@@ -685,16 +677,28 @@ def index():
                 best_effort=True,
             )
             try:
-                draft = client.generate_completion(question_prompt, model=model)
+                draft = client.generate_completion(update_prompt, model=model)
                 draft_json_from_form = draft
                 draft_questions = _extract_questions_from_json(draft)
                 coverage_source = draft
-                if template_text:
-                    missing_placeholders = _compute_missing_placeholders(
-                        template_text, coverage_source
-                    )
+                last_missing = missing_placeholders
+                last_questions = draft_questions or []
             except MedtronicGPTError as exc:
                 error = error or str(exc)
+                break
+
+            refine_attempt += 1
+
+        if template_text and coverage_source:
+            missing_placeholders = _compute_missing_placeholders(
+                template_text, coverage_source
+            )
+        elif draft_questions:
+            # Treat placeholder-like questions as gaps even without template text.
+            missing_placeholders = _collect_placeholder_tokens(draft_questions)
+
+        if missing_placeholders and not client:
+            coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
 
     return render_template_string(
         TEMPLATE,
