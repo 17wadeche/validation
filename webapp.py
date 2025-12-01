@@ -697,6 +697,16 @@ def index():
             # Treat placeholder-like questions as gaps even without template text.
             missing_placeholders = _collect_placeholder_tokens(draft_questions)
 
+        # Hide placeholder-only questions from the UI; they are covered by
+        # missing_placeholder handling and best-effort refinement.
+        placeholder_tokens_from_questions = _collect_placeholder_tokens(
+            draft_questions or []
+        )
+        if placeholder_tokens_from_questions:
+            draft_questions = _filter_placeholder_questions(
+                draft_questions or [], placeholder_tokens_from_questions
+            )
+
         if missing_placeholders and not client:
             coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
 
