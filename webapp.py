@@ -422,12 +422,28 @@ def index():
                 template_bytes = None
 
         client = None
+        base_url = request.form.get("base_url", "").strip() or defaults["base_url"]
+        api_version = request.form.get("api_version", "").strip() or defaults["api_version"]
+        path_template = request.form.get("path_template", "").strip() or defaults["path_template"]
         model = request.form.get("model", "").strip() or defaults["model"]
+
+        # Keep the latest connection settings in defaults so subsequent renders
+        # reflect what the user entered instead of falling back to the saved
+        # credentials (e.g., when switching models away from gpt-41).
+        defaults.update(
+            {
+                "base_url": base_url,
+                "api_version": api_version,
+                "path_template": path_template,
+                "model": model,
+            }
+        )
+
         if request.form.get("use_model") == "on":
             client = MedtronicGPTClient(
-                base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
-                api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
-                path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
+                base_url=base_url,
+                api_version=api_version,
+                path_template=path_template,
                 subscription_key=request.form.get("subscription_key", "").strip(),
                 api_token=request.form.get("api_token", "").strip(),
                 refresh_token=request.form.get("refresh_token", "").strip(),
@@ -438,9 +454,9 @@ def index():
                     subscription_key=request.form.get("subscription_key", "").strip(),
                     api_token=request.form.get("api_token", "").strip(),
                     refresh_token=request.form.get("refresh_token", "").strip(),
-                    api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
-                    base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
-                    path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
+                    api_version=api_version,
+                    base_url=base_url,
+                    path_template=path_template,
                     model=model,
                 )
                 save_credentials(stored)
