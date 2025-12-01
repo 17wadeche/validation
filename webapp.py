@@ -696,6 +696,45 @@ def index():
 
             refine_attempt += 1
 
+        # If questions remain after the main refinement loop, issue one more
+        # best-effort pass focused on those unanswered items so GPT attempts a
+        # plausible fill before surfacing them to the user.
+        if (
+            client
+            and draft_questions
+            and not error
+            and (coverage_source or draft or draft_json_from_form)
+        ):
+            extra_missing = _collect_placeholder_tokens(draft_questions)
+            if template_text and coverage_source:
+                extra_missing = sorted(
+                    set(
+                        extra_missing
+                        + _compute_missing_placeholders(template_text, coverage_source)
+                    )
+                )
+
+            update_prompt = build_update_prompt(
+                template_text or "",
+                examples,
+                code_context,
+                coverage_source,
+                answered=answered if "answered" in locals() else [],
+                plan_context=plan_text,
+                release_type=release_type,
+                missing_tokens=extra_missing,
+                questions_to_answer=draft_questions,
+                best_effort=True,
+            )
+
+            try:
+                draft = client.generate_completion(update_prompt, model=model)
+                draft_json_from_form = draft
+                draft_questions = _extract_questions_from_json(draft)
+                coverage_source = draft
+            except MedtronicGPTError as exc:
+                error = error or str(exc)
+
         if template_text and coverage_source:
             missing_placeholders = _compute_missing_placeholders(
                 template_text, coverage_source
