@@ -1505,6 +1505,9 @@ TEMPLATE = """
       }
 
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+      const placeholders = parsed.placeholders && typeof parsed.placeholders === 'object'
+        ? parsed.placeholders
+        : null;
 
       const sections = [];
       if (answers.length) {
@@ -1524,6 +1527,13 @@ TEMPLATE = """
         if (list) {
           sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
         }
+      }
+
+      if (placeholders && Object.keys(placeholders).length) {
+        const placeholderList = Object.entries(placeholders)
+          .map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong> → ${formatValue(v)}</li>`)
+          .join('');
+        sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Placeholders</div><ul>${placeholderList}</ul></div>`);
       }
 
       friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
