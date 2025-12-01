@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -599,11 +600,36 @@ def index():
             )
             save_credentials(stored)
 
+        # If GPT surfaced placeholder-style questions (e.g., a long list of <B1>,
+        # <NF1>, etc.), treat them as missing tokens to auto-fill instead of
+        # showing them back to the user. This keeps "try your best" questions
+        # in the background.
+        placeholder_tokens_from_questions: List[str] = []
+        if draft_questions:
+            placeholder_tokens_from_questions = sorted(
+                {
+                    token
+                    for q in draft_questions
+                    for token in re.findall(r"<[^>]+>", q)
+                }
+            )
+            if placeholder_tokens_from_questions:
+                draft_questions = [
+                    q
+                    for q in draft_questions
+                    if not any(token in q for token in placeholder_tokens_from_questions)
+                ]
+
         coverage_note = None
         missing_placeholders: List[str] = []
         coverage_source = draft or draft_json_from_form
         if template_text and coverage_source:
             missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
+
+            if placeholder_tokens_from_questions:
+                missing_placeholders = sorted(
+                    set(missing_placeholders + placeholder_tokens_from_questions)
+                )
 
             # Auto-refine coverage when credentials are available to fill any
             # remaining template placeholders without extra user clicks.
