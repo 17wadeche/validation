@@ -303,13 +303,24 @@ def index():
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
         kept_saved_examples: List[StoredFile] = []
+        keep_flags_present = any(
+            key.startswith("keep_example_") for key in request.form.keys()
+        )
         for idx, saved_example in enumerate(stored_inputs.examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
-            if keep_flag == "on":
+            if keep_flags_present:
+                if keep_flag == "on":
+                    kept_saved_examples.append(saved_example)
+            else:
+                # If no keep flags were posted (e.g., from the answers/chat form),
+                # keep all saved examples by default so context is preserved.
                 kept_saved_examples.append(saved_example)
 
         template_choice = request.form.get("selected_template", "")
-        selected_template_name = template_choice.strip()
+        if template_choice and template_choice.strip():
+            selected_template_name = template_choice.strip()
+        elif not selected_template_name and stored_inputs.templates:
+            selected_template_name = stored_inputs.templates[0].name
 
         available_templates = stored_inputs.templates if keep_saved_templates else []
         selected_template_file: Optional[StoredFile] = None
@@ -1093,6 +1104,7 @@ TEMPLATE = """
             <textarea name="draft_json" style="display:none;">{{ draft }}</textarea>
             <input type="hidden" name="plan_text" value="{{ plan_text }}">
             <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
+            <input type="hidden" name="selected_template" value="{{ selected_template_name }}">
             <input type="hidden" name="use_model" value="on">
             <input type="hidden" name="model" value="{{ defaults.model }}">
             <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
@@ -1101,6 +1113,9 @@ TEMPLATE = """
             <input type="hidden" name="subscription_key" value="{{ stored.subscription_key }}">
             <input type="hidden" name="api_token" value="{{ stored.api_token }}">
             <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
+            {% for example in saved_inputs.examples %}
+              <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+            {% endfor %}
             {% for q in draft_questions %}
               <div style="margin-top: 12px;">
                 <div class="pill" style="margin-bottom: 6px; display: inline-flex;">Question {{ loop.index }}</div>
@@ -1181,6 +1196,10 @@ TEMPLATE = """
           <input type="hidden" name="api_token" value="{{ stored.api_token }}">
           <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
           <input type="hidden" name="plan_text" value="{{ plan_text }}">
+          <input type="hidden" name="selected_template" value="{{ selected_template_name }}">
+          {% for example in saved_inputs.examples %}
+            <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+          {% endfor %}
           <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
           <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
           <input type="hidden" name="history_json" value='{{ history | tojson }}'>
