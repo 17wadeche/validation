@@ -21,6 +21,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plan-only", action="store_true", help="Return a planning JSON instead of a draft")
     parser.add_argument("--plan-output", type=Path, help="Optional path to write the planning JSON")
     parser.add_argument("--plan-input", type=Path, help="Existing planning JSON to guide drafting")
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        parser.exit(
+            2,
+            "\nProvide a template, examples JSON, and at least one code path.\n"
+            "Example: python cli.py examples/validation_template.md examples/examples.json src --output draft.md\n",
+        )
+
     return parser.parse_args()
 
 
