@@ -1,0 +1,12 @@
+[
+  {
+    "title": "Insulin pump firmware update",
+    "context": "Firmware manages basal rates, bolus delivery, and fails safe on watchdog resets. Interfaces via Bluetooth Low Energy with encrypted sessions.",
+    "output": "Validation demonstrates encrypted firmware transfer, verifies bolus queue persistence across resets, and confirms watchdog-triggered safe shutdown logs events for audit."
+  },
+  {
+    "title": "Telemetry data aggregator",
+    "context": "Python service collects device vitals, normalizes units, and stores in PostgreSQL with role-based access control.",
+    "output": "Validation covers unit normalization algorithms, database migration integrity, and access-control enforcement across user roles and audit reporting."
+  }
+]
