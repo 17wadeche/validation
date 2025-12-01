@@ -624,8 +624,6 @@ def index():
         # clarifying questions are answered before the user sees them.
         max_refine_attempts = 3
         refine_attempt = 0
-        last_missing: Optional[List[str]] = None
-        last_questions: Optional[List[str]] = None
         while (
             client
             and (coverage_source or draft or draft_json_from_form)
@@ -657,13 +655,6 @@ def index():
             if not missing_placeholders and not draft_questions:
                 break
 
-            # Avoid repeated calls if nothing changed between attempts.
-            if (
-                last_missing == missing_placeholders
-                and last_questions == (draft_questions or [])
-            ):
-                break
-
             update_prompt = build_update_prompt(
                 template_text or "",
                 examples,
@@ -681,8 +672,6 @@ def index():
                 draft_json_from_form = draft
                 draft_questions = _extract_questions_from_json(draft)
                 coverage_source = draft
-                last_missing = missing_placeholders
-                last_questions = draft_questions or []
             except MedtronicGPTError as exc:
                 error = error or str(exc)
                 break
