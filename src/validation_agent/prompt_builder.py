@@ -183,7 +183,8 @@ def build_prompt(
     prompt_sections.append(
         "\n## Response rules\n"
         "- Preserve the template's structure conceptually; do not rewrite sections—just tell the user what to type.\n"
-        "- Always include your best-effort `placeholders` map and `answers` list even if some items are blank; add `questions` only for the missing pieces.\n"
+        "- Always include your best-effort `placeholders` map and `answers` list; if you must guess, supply the best answer you can and mark it with `confidence: \"low\"` while also adding a clarifying question.\n"
+        "- Only leave a placeholder blank when it cannot be inferred (e.g., person names); otherwise provide a best-effort value plus `confidence: \"low\"`.\n"
         "- Do not provide the full draft text; focus on explicit mappings from template text (blue instructions or <tokens>) to replacements.\n"
         "- Maintain clear traceability to the template placeholders and avoid inventing functionality not evidenced in the code context.\n"
         "- Add a `coverage` object that lists any `missing_tokens` and `unmapped_sections` you could not fill so gaps are explicit.\n"
@@ -202,6 +203,7 @@ def build_update_prompt(
     plan_context: str | None = None,
     release_type: str = "initial",
     missing_tokens: list[str] | None = None,
+    best_effort: bool = False,
 ) -> str:
     """Ask the model to merge new answers into an existing mapping JSON."""
 
@@ -283,5 +285,14 @@ def build_update_prompt(
         "- Do not invent person names or signatures; leave them blank or add a clarifying question.\n"
         "- If a placeholder appears multiple times, ensure the same value is reused consistently.\n"
     )
+
+    if best_effort:
+        prompt_sections.append(
+            "\n## Best-effort fills\n"
+            "For any remaining placeholders (including deletions), provide your best answer."
+            " If uncertain, still propose a value and tag that answer with `confidence: \"low\"`,"
+            " and keep a clarifying question so the user can confirm."
+            " Leave blanks only when inference is impossible (e.g., person names)."
+        )
 
     return "\n\n".join(prompt_sections).strip() + "\n"

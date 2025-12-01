@@ -498,6 +498,7 @@ def index():
                                 plan_context=plan_text,
                                 release_type=release_type,
                                 missing_tokens=missing_for_update,
+                                best_effort=True,
                             )
                             try:
                                 draft = client.generate_completion(update_prompt, model=model)
@@ -621,6 +622,7 @@ def index():
                     plan_context=plan_text,
                     release_type=release_type,
                     missing_tokens=missing_placeholders,
+                    best_effort=True,
                 )
                 try:
                     draft = client.generate_completion(update_prompt, model=model)
@@ -1368,8 +1370,12 @@ TEMPLATE = """
           .map((item) => {
             const placeholder = item.placeholder || item.question;
             const value = item.replacement !== undefined ? item.replacement : item.answer;
+            const confidence = item.confidence || item.confidence_level || item.confidence_score;
             if (!placeholder) return '';
-            return `<li><strong>${escapeHtml(placeholder)}</strong> → ${formatValue(value)}</li>`;
+            const confidenceTag = confidence
+              ? `<span class="pill" style="margin-left:6px; background: rgba(234,179,8,0.18); border-color: rgba(234,179,8,0.35); color: #92400e;">Confidence: ${escapeHtml(confidence)}</span>`
+              : '';
+            return `<li><strong>${escapeHtml(placeholder)}</strong> → ${formatValue(value)}${confidenceTag}</li>`;
           })
           .filter(Boolean)
           .join('');
