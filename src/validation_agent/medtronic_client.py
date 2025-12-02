@@ -1,14 +1,9 @@
 from __future__ import annotations
-
 import json
 from dataclasses import dataclass, field
 from urllib import error, parse, request
-
-
 class MedtronicGPTError(Exception):
     """Raised when the MedtronicGPT service cannot return a completion."""
-
-
 @dataclass
 class MedtronicGPTClient:
     subscription_key: str
@@ -21,13 +16,11 @@ class MedtronicGPTClient:
     temperature: float | None = 0.0
     max_tokens: int | None = 32768
     last_refresh: bool = field(default=False, init=False)
-
     DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_TOKENS = 32768
-
     def generate_completion(
         self,
         prompt: str | None = None,
@@ -37,7 +30,6 @@ class MedtronicGPTClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        # Reset refresh flag for this request
         self.last_refresh = False
         if messages is None:
             if not prompt or not prompt.strip():
@@ -47,7 +39,6 @@ class MedtronicGPTClient:
             if not messages:
                 raise MedtronicGPTError("Message history is empty; provide at least one message.")
             payload_messages = messages
-
         def _send_once(current_api_token: str) -> str:
             path = self.path_template.format(model=parse.quote(model, safe=""))
             if not path.startswith("/"):
@@ -57,11 +48,9 @@ class MedtronicGPTClient:
             payload_temperature = temperature if temperature is not None else self.temperature
             if payload_temperature is not None:
                 payload_body["temperature"] = float(payload_temperature)
-
             payload_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
             if payload_max_tokens is not None:
                 payload_body["max_tokens"] = int(payload_max_tokens)
-
             payload = json.dumps(payload_body).encode("utf-8")
             headers = {
                 "Content-Type": "application/json",
@@ -70,12 +59,10 @@ class MedtronicGPTClient:
                 "refresh-token": self.refresh_token,
                 "api-version": self.api_version,
             }
-
             req = request.Request(url, data=payload, headers=headers)
             with request.urlopen(req) as resp:  # nosec: B310
                 body = resp.read().decode("utf-8")
             return self._extract_content(body)
-
         try:
             return _send_once(self.api_token)
         except error.HTTPError as exc:  # pragma: no cover - network
@@ -101,27 +88,18 @@ class MedtronicGPTClient:
                         raise MedtronicGPTError(
                             f"MedtronicGPT connection error after refresh: {retry_exc.reason}"
                         ) from retry_exc
-
             raise MedtronicGPTError(
                 f"MedtronicGPT request failed ({exc.code}): {exc.reason} (URL: {exc.geturl()})"
             ) from exc
         except error.URLError as exc:  # pragma: no cover - network
             raise MedtronicGPTError(f"MedtronicGPT connection error: {exc.reason}") from exc
-
     def refresh_tokens(self) -> dict:
-        """Refresh the API token using the stored refresh token.
-
-        Returns the parsed JSON response on success and updates in-place tokens.
-        """
-
         if not self.refresh_token:
             raise MedtronicGPTError("No refresh token provided; cannot refresh API token.")
-
         path = self.refresh_path
         if not path.startswith("/"):
             path = f"/{path}"
         url = f"{self.base_url.rstrip('/')}{path}"
-
         headers = {
             "subscription-key": self.subscription_key,
             "api-token": self.api_token,
@@ -130,7 +108,6 @@ class MedtronicGPTClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-
         req = request.Request(url, data=json.dumps({}).encode("utf-8"), headers=headers)
         try:
             with request.urlopen(req) as resp:  # nosec: B310
@@ -141,23 +118,18 @@ class MedtronicGPTClient:
             ) from exc
         except error.URLError as exc:  # pragma: no cover - network
             raise MedtronicGPTError(f"MedtronicGPT connection error during refresh: {exc.reason}") from exc
-
         try:
             data = json.loads(body)
         except json.JSONDecodeError as exc:  # pragma: no cover - parsing
             raise MedtronicGPTError("Token refresh returned an invalid response.") from exc
-
         new_api_token = data.get("apiToken") or data.get("api_token")
         new_refresh_token = data.get("refreshToken") or data.get("refresh_token")
-
         if new_api_token:
             self.api_token = new_api_token
         if new_refresh_token:
             self.refresh_token = new_refresh_token
-
         self.last_refresh = True
         return data
-
     @staticmethod
     def _extract_content(body: str) -> str:
         try:

@@ -9,7 +9,6 @@ from .prompt_builder import (
     format_examples,
     load_examples,
 )
-
 __all__ = [
     "Example",
     "ValidationAgent",

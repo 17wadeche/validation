@@ -1,14 +1,9 @@
 from __future__ import annotations
-
 from pathlib import Path
 from typing import Callable, Iterable, Optional
-
 from .document_loader import load_text_document
 from .prompt_builder import Example, build_planning_prompt, build_prompt, load_examples
-
 LLMCallable = Callable[[str], str]
-
-
 def load_code_context(paths: Iterable[Path], max_chars: int = 12000) -> str:
     parts = []
     total = 0
@@ -26,18 +21,13 @@ def load_code_context(paths: Iterable[Path], max_chars: int = 12000) -> str:
         if total >= max_chars:
             break
     return "".join(parts).strip()
-
-
 def _read_snippet(path: Path, remaining: int) -> str:
     if remaining <= 0:
         return ""
     return path.read_text(encoding="utf-8")[:remaining]
-
-
 class ValidationAgent:
     def __init__(self, llm_callable: Optional[LLMCallable] = None) -> None:
         self.llm_callable = llm_callable
-
     def create_prompt(
         self,
         template_path: Path,
@@ -56,7 +46,6 @@ class ValidationAgent:
             plan_context=plan_context,
             release_type=release_type,
         )
-
     def plan_document(
         self, template_path: Path, examples_path: Path, code_paths: Iterable[Path]
     ) -> str:
@@ -67,7 +56,6 @@ class ValidationAgent:
         if self.llm_callable:
             return self.llm_callable(planning_prompt)
         return planning_prompt
-
     def generate_draft(
         self,
         template_path: Path,

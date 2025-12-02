@@ -574,14 +574,15 @@ def index():
         if stored_template:
             final_templates = _dedupe_by_name([stored_template] + final_templates)
             selected_template_name = stored_template.name
-
-        # Always carry forward newly uploaded examples so they stay available
-        # for selection on the next render. Users can uncheck or remove them as
-        # needed, but uploads should persist by default.
-        final_examples = _dedupe_by_name(kept_saved_examples + stored_examples)
+        existing_examples: List[StoredFile] = list(stored_inputs.examples)
+        existing_names = {ex.name for ex in existing_examples}
+        for ex in stored_examples:
+            if ex.name not in existing_names:
+                existing_examples.append(ex)
+                existing_names.add(ex.name)
         persisted_inputs = SavedInputs(
             templates=final_templates,
-            examples=_dedupe_by_name(final_examples),
+            examples=_dedupe_by_name(existing_examples),
         )
         if not selected_template_name and persisted_inputs.templates:
             selected_template_name = persisted_inputs.templates[0].name
@@ -857,7 +858,20 @@ TEMPLATE = """
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
               <div class="stack" style="gap:8px;">
-                <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                  <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">
+                    Saved examples
+                  </div>
+                  <button
+                    type="button"
+                    id="uncheckAllExamples"
+                    class="btn btn-ghost"
+                    style="padding:6px 10px; font-size:12px;"
+                    title="Uncheck all saved examples for this run"
+                  >
+                    Uncheck all
+                  </button>
+                </div>
                 <div class="stack" style="gap:6px;">
                   {% for example in saved_inputs.examples %}
                     <div style="display:flex; align-items:center; gap:10px;">
@@ -869,7 +883,9 @@ TEMPLATE = """
                     </div>
                   {% endfor %}
                 </div>
-                <p class="muted" style="margin-top:6px;">Select multiple saved examples, or remove the ones you no longer need.</p>
+                <p class="muted" style="margin-top:6px;">
+                  Select which saved examples to use for this run. “Uncheck all” keeps them saved but excludes them from the next build.
+                </p>
               </div>
             {% endif %}
           </div>
@@ -1103,6 +1119,7 @@ TEMPLATE = """
     const codeFilesPicker = document.getElementById('codeFilesPicker');
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
+    const uncheckAllExamplesButton = document.getElementById('uncheckAllExamples');
 
     function submitWithAction(actionValue) {
       if (!mainForm) return;
@@ -1160,6 +1177,14 @@ TEMPLATE = """
       examplesInput.addEventListener('change', () => {
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('save_examples');
+      });
+    }
+    if (uncheckAllExamplesButton) {
+      uncheckAllExamplesButton.addEventListener('click', () => {
+        const boxes = document.querySelectorAll('input[type="checkbox"][name^="keep_example_"]');
+        boxes.forEach((box) => {
+          box.checked = false;
+        });
       });
     }
 
@@ -1422,19 +1447,13 @@ TEMPLATE = """
 </body>
 </html>
 """
-
-
 if __name__ == "__main__":
-    # Bind to loopback by default so the dev server is not exposed to the network unless explicitly
-    # configured. Override via VALIDATION_UI_HOST/VALIDATION_UI_PORT when remote access is required.
     import os
     import socket
     import threading
     import time
     import webbrowser
-
     def _find_open_port(host: str, preferred: int) -> int:
-        """Return the preferred port if available, otherwise the next free port."""
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
@@ -1442,24 +1461,18 @@ if __name__ == "__main__":
                 return preferred
             except OSError:
                 pass
-
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((host, 0))
             return s.getsockname()[1]
-
     host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
     requested_port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
     port = _find_open_port(host, requested_port)
-
     def _open_browser() -> None:
-        # Small delay to allow the server to start before opening the browser.
         time.sleep(1)
         try:
             webbrowser.open(f"http://{host}:{port}")
         except Exception:
-            # If the browser fails to open (e.g., kiosk or server build), just continue running.
             pass
-
     threading.Thread(target=_open_browser, daemon=True).start()
     app.run(host=host, port=port, debug=False)
