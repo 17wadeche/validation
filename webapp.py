@@ -858,6 +858,14 @@ TEMPLATE = """
     .tag-row { display: flex; align-items: center; gap: 8px; }
     .pill-old { background: rgba(59,130,246,0.1); color: #2563eb; border-color: rgba(59,130,246,0.35); }
     .pill-new { background: rgba(16,185,129,0.1); color: #059669; border-color: rgba(16,185,129,0.3); }
+    .saved-scroll {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-height: 220px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: #fff;
+    }
     .card h3 { margin-bottom: 10px; }
     .card p { color: var(--muted); margin: 6px 0 12px; }
     .section { margin-top: 22px; }
@@ -994,16 +1002,18 @@ TEMPLATE = """
             {% if saved_inputs.examples %}
               <div class="stack" style="gap:8px;">
                 <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
-                <div class="stack" style="gap:6px;">
-                  {% for example in saved_inputs.examples %}
-                    <div style="display:flex; align-items:center; gap:10px;">
-                      <label class="checkbox" style="margin:0; flex:1;">
-                        <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
-                        <span>{{ example.name }}</span>
-                      </label>
-                      <button type="button" class="btn btn-ghost" data-remove-example="{{ example.name }}" title="Remove example" style="padding:8px 10px;">&#8722;</button>
-                    </div>
-                  {% endfor %}
+                <div class="saved-scroll">
+                  <div class="stack" style="gap:6px;">
+                    {% for example in saved_inputs.examples %}
+                      <div style="display:flex; align-items:center; gap:10px;">
+                        <label class="checkbox" style="margin:0; flex:1;">
+                          <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
+                          <span>{{ example.name }}</span>
+                        </label>
+                        <button type="button" class="btn btn-ghost" data-remove-example="{{ example.name }}" title="Remove example" style="padding:8px 10px;">&#8722;</button>
+                      </div>
+                    {% endfor %}
+                  </div>
                 </div>
                 <p class="muted" style="margin-top:6px;">Select multiple saved examples, or remove the ones you no longer need.</p>
               </div>
