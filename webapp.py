@@ -306,23 +306,22 @@ def index():
 
         # Saved examples should persist even when they aren't selected for this
         # run. Track the full saved set separately from the subset used in the
-        # current prompt so unselected examples remain available next time.
+        # current prompt so unselected examples remain available next time. When
+        # a selection submission is posted (including "deselect all"), honor the
+        # posted checkboxes even if none are checked.
         kept_saved_examples_prompt: List[StoredFile] = []
         all_saved_examples: List[StoredFile] = list(stored_inputs.examples)
-        keep_flags_present = (
-            request.form.get("keep_flags_present") == "1"
-            or any(key.startswith("keep_example_") for key in request.form.keys())
+        selection_submitted = request.form.get("examples_selection_submitted") == "1" or any(
+            key.startswith("keep_example_") for key in request.form.keys()
         )
         selected_example_names = []
         for idx, saved_example in enumerate(all_saved_examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
-            if keep_flags_present:
+            if selection_submitted:
                 if keep_flag == "on":
                     kept_saved_examples_prompt.append(saved_example)
                     selected_example_names.append(saved_example.name)
             else:
-                # Default to using all saved examples when no keep flags are posted
-                # (e.g., from chat/answers forms).
                 kept_saved_examples_prompt.append(saved_example)
                 selected_example_names.append(saved_example.name)
 
@@ -1047,7 +1046,7 @@ TEMPLATE = """
           <h3>Examples</h3>
           <p>Provide example docs to guide tone and structure.</p>
           <div class="stack">
-            <input type="hidden" name="keep_flags_present" id="keepFlagsPresent" value="0">
+            <input type="hidden" name="examples_selection_submitted" id="examplesSelectionSubmitted" value="0">
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
               <div class="stack" style="gap:8px;">
@@ -1314,7 +1313,7 @@ TEMPLATE = """
     const rememberInputs = document.querySelector('input[name="remember_inputs"]');
     const templateInput = document.querySelector('input[name="template_file"]');
     const examplesInput = document.querySelector('input[name="examples"]');
-    const keepFlagsPresentInput = document.getElementById('keepFlagsPresent');
+    const examplesSelectionSubmitted = document.getElementById('examplesSelectionSubmitted');
     const deselectExamplesButton = document.getElementById('deselectExamples');
     const savedExampleCheckboxes = Array.from(document.querySelectorAll('input[name^="keep_example_"]'));
     const codeFilesManaged = document.getElementById('codeFilesManaged');
@@ -1381,19 +1380,18 @@ TEMPLATE = """
       });
     }
 
-    savedExampleCheckboxes.forEach((cb) => {
-      cb.addEventListener('change', () => {
-        if (keepFlagsPresentInput) keepFlagsPresentInput.value = '1';
-      });
-    });
-
     if (deselectExamplesButton) {
       deselectExamplesButton.addEventListener('click', () => {
         savedExampleCheckboxes.forEach((cb) => {
           cb.checked = false;
         });
-        if (keepFlagsPresentInput) keepFlagsPresentInput.value = '1';
         if (rememberInputs) rememberInputs.checked = true;
+      });
+    }
+
+    if (mainForm) {
+      mainForm.addEventListener('submit', () => {
+        if (examplesSelectionSubmitted) examplesSelectionSubmitted.value = '1';
       });
     }
 
