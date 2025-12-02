@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
-
 from flask import Flask, render_template_string, request
-
 from src.validation_agent.prompt_builder import (
     Example,
     build_planning_prompt,
@@ -23,20 +20,15 @@ from src.validation_agent.storage import (
     load_saved_inputs,
     save_inputs,
 )
-
+from src.validation_agent.workbook_loader import extract_excel_context, extract_pbix_context
+import tempfile
 app = Flask(__name__)
-
-
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:
         return None, None, None, None
     filename = file_storage.filename
     if not filename:
         return None, None, None, None
-
-    # Use FileStorage.read() directly to avoid issues with exhausted streams when
-    # Werkzeug reuses the underlying file handle. This ensures we persist the
-    # uploaded template even if extraction fails.
     raw_bytes = b""
     try:
         file_storage.stream.seek(0)
@@ -56,26 +48,19 @@ def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional
         try:
             text = load_text_document(Path(tmp.name))
         except Exception:
-            # If extraction fails (e.g., optional deps missing), still keep the upload so it
-            # can be selected and persisted immediately.
             text = ""
     return text, raw_bytes, suffix, filename
-
-
 def _read_saved_file(saved_file: StoredFile) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     try:
         raw_bytes = saved_file.to_bytes()
     except Exception:
         return None, None, None, None
-
     suffix = saved_file.suffix or Path(saved_file.name).suffix
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(raw_bytes)
         tmp.flush()
         text = load_text_document(Path(tmp.name))
     return text, raw_bytes, suffix, saved_file.name
-
-
 def _dedupe_by_name(files: List[StoredFile]) -> List[StoredFile]:
     seen = set()
     unique: List[StoredFile] = []
@@ -85,8 +70,6 @@ def _dedupe_by_name(files: List[StoredFile]) -> List[StoredFile]:
         seen.add(item.name)
         unique.append(item)
     return unique
-
-
 def _extract_questions_from_json(payload: str) -> List[str]:
     if not payload:
         return []
@@ -94,7 +77,6 @@ def _extract_questions_from_json(payload: str) -> List[str]:
         data = json.loads(payload)
     except Exception:
         return []
-
     questions: List[str] = []
     if isinstance(data, dict):
         for key in ("questions", "clarifying_questions"):
@@ -102,8 +84,6 @@ def _extract_questions_from_json(payload: str) -> List[str]:
             if isinstance(value, list):
                 questions.extend(str(item).strip() for item in value if str(item).strip())
     return questions
-
-
 def _gather_examples(
     uploaded_files,
     saved_examples: List[StoredFile],
@@ -112,78 +92,77 @@ def _gather_examples(
 ) -> Tuple[List[Example], List[StoredFile]]:
     examples: List[Example] = []
     stored_examples: List[StoredFile] = []
-
     for file_storage in uploaded_files or []:
         content, raw_bytes, _, filename = _read_upload(file_storage)
         if raw_bytes is not None and filename:
             label = f"[{tag}] {filename}" if tag else filename
             examples.append(Example(title=label, context="", output=content or ""))
             stored_examples.append(StoredFile.from_bytes(label, raw_bytes))
-
     for saved in saved_examples:
         content, raw_bytes, _, name = _read_saved_file(saved)
         if raw_bytes is not None and name:
             examples.append(Example(title=name, context="", output=content or ""))
             stored_examples.append(StoredFile.from_bytes(name, raw_bytes))
-
     return examples, _dedupe_by_name(stored_examples)
-
-
 def _format_code_section(label: str, snippets: List[str]) -> str:
     if not snippets:
         return ""
     return f"## {label}\n" + "\n".join(snippets)
-
-
 def _gather_code_context(
     current_code_files, inline_code: str, old_code_files=None, new_code_files=None
 ) -> str:
     snippets_current: List[str] = []
     snippets_old: List[str] = []
     snippets_new: List[str] = []
-
+    def _extract_from_upload(fs) -> str:
+        from pathlib import Path
+        if not fs or not fs.filename:
+            return ""
+        suffix = Path(fs.filename).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            fs.stream.seek(0)
+            tmp.write(fs.stream.read())
+            tmp.flush()
+            tmp_path = Path(tmp.name)
+        try:
+            if suffix in {".xlsm", ".xlsx", ".xls", ".xlsb"}:
+                return extract_excel_context(tmp_path)
+            if suffix == ".pbix":
+                return extract_pbix_context(tmp_path)
+            tmp_path_str = tmp_path.read_text(encoding="utf-8", errors="ignore")
+            return tmp_path_str
+        except Exception:
+            return ""
     def _collect(files, bucket: List[str], tag: str):
-        for file_storage in files or []:
-            if not file_storage or not file_storage.filename:
+        from pathlib import Path
+        for fs in files or []:
+            if not fs or not fs.filename:
                 continue
-            try:
-                text = file_storage.stream.read().decode("utf-8")
-            except Exception:
-                continue
+            text = _extract_from_upload(fs)
             if text.strip():
-                bucket.append(f"\n# {tag} File: {file_storage.filename}\n{text.strip()}\n")
-
+                bucket.append(f"\n# {tag} File: {fs.filename}\n{text.strip()}\n")
     _collect(current_code_files, snippets_current, "Current")
     _collect(old_code_files or [], snippets_old, "Previous")
     _collect(new_code_files or [], snippets_new, "Updated")
-
     sections = [
         _format_code_section("Current code/context", snippets_current),
         _format_code_section("Previous version (for updates)", snippets_old),
         _format_code_section("Updated version (for updates)", snippets_new),
     ]
-
     if inline_code.strip():
         sections.append(_format_code_section("Additional notes", [inline_code.strip()]))
-
     return "\n\n".join(part for part in sections if part).strip()
-
-
 def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[str]:
     if not template_text or not draft_json:
         return []
-
     tokens = [tok.strip() for tok in extract_placeholders(template_text) if tok.strip()]
     if not tokens:
         return []
-
     try:
         data = json.loads(draft_json)
     except Exception:
         return tokens
-
     filled = set()
-
     placeholders_map = data.get("placeholders") if isinstance(data, dict) else {}
     if isinstance(placeholders_map, dict):
         for token, value in placeholders_map.items():
@@ -195,7 +174,6 @@ def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[s
                     filled.add(token)
             elif value is not None:
                 filled.add(token)
-
     answers = data.get("answers") if isinstance(data, dict) else []
     if isinstance(answers, list):
         for entry in answers:
@@ -210,10 +188,7 @@ def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[s
             if isinstance(replacement, str) and not replacement.strip():
                 continue
             filled.add(token)
-
     return [tok for tok in tokens if tok not in filled]
-
-
 def _build_prompt_from_request(
     form,
     files,
@@ -224,17 +199,13 @@ def _build_prompt_from_request(
 ) -> Tuple[str, Optional[bytes], Optional[StoredFile], List[StoredFile], str, List[Example], str]:
     template_text, template_bytes, _, template_name = _read_upload(files.get("template_file"))
     stored_template: Optional[StoredFile] = None
-
     if not template_text and selected_template:
         template_text, template_bytes, _, template_name = _read_saved_file(selected_template)
-
     if template_bytes is not None and template_name:
         stored_template = StoredFile.from_bytes(template_name, template_bytes)
         selected_template = stored_template
         selected_template_name = stored_template.name
-
     examples, stored_examples = _gather_examples(files.getlist("examples"), kept_saved_examples)
-
     code_context = _gather_code_context(
         files.getlist("code_files"),
         form.get("code_context", ""),
@@ -257,8 +228,6 @@ def _build_prompt_from_request(
         examples,
         code_context,
     )
-
-
 @app.route("/", methods=["GET", "POST"])
 def index():
     prompt: Optional[str] = None
@@ -277,14 +246,12 @@ def index():
     draft_json_from_form: str = ""
     release_type: str = "initial"
     selected_template_name: str = stored_inputs.templates[0].name if stored_inputs.templates else ""
-
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
         "api_version": MedtronicGPTClient.DEFAULT_API_VERSION,
         "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
         "model": "gpt-41",
     }
-
     stored = load_credentials()
     defaults.update(
         {
@@ -293,7 +260,6 @@ def index():
             "path_template": stored.path_template or defaults["path_template"],
         }
     )
-
     if request.method == "POST":
         draft_json_from_form = request.form.get("draft_json", "")
         remove_template_name = request.form.get("remove_template", "").strip()
@@ -305,10 +271,8 @@ def index():
             keep_flag = request.form.get(f"keep_example_{idx}")
             if keep_flag == "on":
                 kept_saved_examples.append(saved_example)
-
         template_choice = request.form.get("selected_template", "")
         selected_template_name = template_choice.strip()
-
         available_templates = stored_inputs.templates if keep_saved_templates else []
         selected_template_file: Optional[StoredFile] = None
         if available_templates and selected_template_name:
@@ -317,11 +281,8 @@ def index():
                 available_templates[0],
             )
             selected_template_name = selected_template_file.name
-
-        # defaults in case inputs are not being remembered
         final_templates: List[StoredFile] = available_templates
         final_examples: List[StoredFile] = kept_saved_examples
-
         plan_text = request.form.get("plan_text", "")
         remember_credentials = request.form.get("remember_credentials") == "on"
         release_type = request.form.get("release_type", "initial") or "initial"
@@ -331,13 +292,11 @@ def index():
             history = json.loads(history_json) if history_json else []
         except json.JSONDecodeError:
             history = []
-
         action = request.form.get("action", "build")
         if remove_template_name:
             action = "remove_template"
         if remove_example_name:
             action = "remove_example"
-
         if action == "remove_template":
             updated_templates = [
                 tmpl for tmpl in stored_inputs.templates if tmpl.name != remove_template_name
@@ -365,7 +324,6 @@ def index():
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
             )
-
         if action == "remove_example":
             updated_examples = [
                 ex for ex in stored_inputs.examples if ex.name != remove_example_name
@@ -393,7 +351,6 @@ def index():
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
             )
-
         (
             prompt,
             template_bytes,
@@ -418,7 +375,6 @@ def index():
                 template_bytes = selected_template_file.to_bytes()
             except Exception:
                 template_bytes = None
-
         client = None
         model = request.form.get("model", "").strip() or defaults["model"]
         if request.form.get("use_model") == "on":
@@ -430,7 +386,6 @@ def index():
                 api_token=request.form.get("api_token", "").strip(),
                 refresh_token=request.form.get("refresh_token", "").strip(),
             )
-
             if remember_credentials:
                 stored = StoredCredentials(
                     subscription_key=request.form.get("subscription_key", "").strip(),
@@ -441,7 +396,6 @@ def index():
                     path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
                 )
                 save_credentials(stored)
-
         if action in {"answers", "refine"}:
             answered = []
             for key, value in request.form.items():
@@ -451,7 +405,6 @@ def index():
                     answer = request.form.get(f"answer_{idx}", "").strip()
                     if question and answer:
                         answered.append((question, answer))
-
             if not draft_json_from_form.strip():
                 error = "No draft JSON was provided to update with answers."
             else:
@@ -460,7 +413,6 @@ def index():
                 except json.JSONDecodeError:
                     parsed = None
                     error = "Draft JSON could not be parsed."
-
                 if parsed is not None:
                     answers_list = parsed.get("answers")
                     if not isinstance(answers_list, list):
@@ -504,7 +456,6 @@ def index():
                                 draft_questions = _extract_questions_from_json(draft)
                             except MedtronicGPTError as exc:
                                 error = str(exc)
-
         if action == "chat" and client:
             user_message = request.form.get("chat_input", "").strip()
             if user_message:
@@ -553,7 +504,6 @@ def index():
                     plan_text = client.generate_completion(planning_prompt, model=model)
                 except MedtronicGPTError as exc:
                     error = str(exc)
-
             if not error:
                 prompt = build_prompt(template_text or "", examples, code_context, plan_context=plan_text)
                 try:
@@ -561,16 +511,11 @@ def index():
                     draft_questions = _extract_questions_from_json(draft)
                 except MedtronicGPTError as exc:
                     error = str(exc)
-
-        # carry forward previously generated draft when answering questions or chatting without rebuilding
         if action in {"chat", "answers"} and not draft and draft_json_from_form.strip():
             draft = draft_json_from_form
             draft_questions = _extract_questions_from_json(draft)
-
-        # Keep the latest answers JSON in sync across forms after any update.
         if draft:
             draft_json_from_form = draft
-
         if stored_template:
             final_templates = _dedupe_by_name([stored_template] + final_templates)
             selected_template_name = stored_template.name
@@ -587,7 +532,6 @@ def index():
         if not selected_template_name and persisted_inputs.templates:
             selected_template_name = persisted_inputs.templates[0].name
         save_inputs(persisted_inputs)
-
         if client and client.last_refresh and remember_credentials:
             stored = StoredCredentials(
                 subscription_key=client.subscription_key,
@@ -598,15 +542,11 @@ def index():
                 path_template=client.path_template,
             )
             save_credentials(stored)
-
         coverage_note = None
         missing_placeholders: List[str] = []
         coverage_source = draft or draft_json_from_form
         if template_text and coverage_source:
             missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
-
-            # Auto-refine coverage when credentials are available to fill any
-            # remaining template placeholders without extra user clicks.
             if (
                 missing_placeholders
                 and client
@@ -635,7 +575,6 @@ def index():
                     error = error or str(exc)
             elif missing_placeholders and not client:
                 coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
-
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
@@ -655,8 +594,6 @@ def index():
         release_type=release_type,
         selected_template_name=selected_template_name,
     )
-
-
 TEMPLATE = """
 <!doctype html>
 <html lang=\"en\">
@@ -800,11 +737,9 @@ TEMPLATE = """
         <div class=\"badge\">Medtronic Validation Draft Builder</div>
       </div>
     </div>
-
     {% if error %}
       <div class=\"error\"><strong>Error:</strong> {{ error }}</div>
     {% endif %}
-
     <div class=\"section\">
       <div class=\"section-head\">
         <h2>Inputs</h2>
@@ -814,7 +749,6 @@ TEMPLATE = """
       <input type=\"hidden\" name=\"plan_text\" value=\"{{ plan_text }}\">
       <textarea name=\"draft_json\" style=\"display:none;\">{{ draft or draft_json }}</textarea>
       <input type=\"hidden\" name=\"remove_example\" id=\"removeExampleInput\" value=\"\">
-
       <div class=\"section-body\">
         <div class="panel" data-step="Step 1">
           <h3>Template & release</h3>
@@ -850,7 +784,6 @@ TEMPLATE = """
             </div>
           </div>
         </div>
-
         <div class="panel" data-step="Step 2">
           <h3>Examples</h3>
           <p>Provide example docs to guide tone and structure.</p>
@@ -890,8 +823,6 @@ TEMPLATE = """
             {% endif %}
           </div>
         </div>
-
-
         <div class=\"panel\" data-step=\"Step 3\">
           <h3>Code & context</h3>
           <p>Attach relevant code or notes so answers stay anchored to your build.</p>
@@ -924,7 +855,6 @@ TEMPLATE = """
             </div>
           </div>
         </div>
-
         <div class=\"panel\" data-step=\"Step 4\" id=\"connection-card\">
             <div style=\"display:flex; align-items:center; justify-content:space-between; gap:10px;\">
               <div>
@@ -1011,7 +941,6 @@ TEMPLATE = """
           </form>
         </div>
       {% endif %}
-
     {% if draft %}
       <div class="section">
         <div class="section-head">
@@ -1031,8 +960,6 @@ TEMPLATE = """
         </div>
       </div>
     {% endif %}
-
-
       {% if template_text and (draft or draft_json) %}
         <div class="section">
           <div class="section-head">
@@ -1056,8 +983,6 @@ TEMPLATE = """
         </div>
         </div>
       {% endif %}
-
-
     <div class="section" style="margin-bottom: 12px;">
       <div class="section-head">
         <h2>Ask Clarifying Questions and Refine Answers</h2>
@@ -1079,14 +1004,12 @@ TEMPLATE = """
           <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
           <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
           <input type="hidden" name="history_json" value='{{ history | tojson }}'>
-
           <textarea name="chat_input" placeholder="Ask a question or request edits..." style="min-height: 80px;"></textarea>
           <div class="actions" style="margin-top: 10px;">
             <button class="btn btn-ghost" type="submit">Send</button>
             <div class="pill">Chat stays aligned to your uploaded context.</div>
           </div>
         </form>
-
         {% if history %}
           <div class="output" style="margin-top: 12px;">
             {% for message in history %}
@@ -1097,7 +1020,6 @@ TEMPLATE = """
       </div>
     </div>
     </div>
-
     <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
@@ -1120,7 +1042,6 @@ TEMPLATE = """
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
     const uncheckAllExamplesButton = document.getElementById('uncheckAllExamples');
-
     function submitWithAction(actionValue) {
       if (!mainForm) return;
       const hidden = document.createElement('input');
@@ -1130,22 +1051,18 @@ TEMPLATE = """
       mainForm.appendChild(hidden);
       mainForm.submit();
     }
-
     let answersReleaseInput = null;
     let chatReleaseInput = null;
-
     function syncUpdateSections(value) {
       const show = value === 'update';
       updateSections.forEach((node) => {
         node.style.display = show ? '' : 'none';
       });
     }
-
     function syncReleaseInputs(value) {
       if (answersReleaseInput) answersReleaseInput.value = value;
       if (chatReleaseInput) chatReleaseInput.value = value;
     }
-
     syncUpdateSections(releaseValue);
     releaseRadios.forEach((radio) => {
       radio.addEventListener('change', (e) => {
@@ -1154,7 +1071,6 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
-
     if (removeExampleButtons.length && mainForm && removeExampleInput) {
       removeExampleButtons.forEach((btn) => {
         btn.addEventListener('click', (event) => {
@@ -1165,14 +1081,12 @@ TEMPLATE = """
         });
       });
     }
-
     if (templateInput && mainForm) {
       templateInput.addEventListener('change', () => {
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('save_template');
       });
     }
-
     if (examplesInput && mainForm) {
       examplesInput.addEventListener('change', () => {
         if (rememberInputs) rememberInputs.checked = true;
@@ -1187,14 +1101,11 @@ TEMPLATE = """
         });
       });
     }
-
     const codeStore = new Map();
-
     function rebuildCodeFiles() {
       if (!codeFilesManaged || typeof DataTransfer === 'undefined') return;
       const dt = new DataTransfer();
       if (codeFileList) codeFileList.innerHTML = '';
-
       codeStore.forEach((file, key) => {
         dt.items.add(file);
         if (codeFileList) {
@@ -1207,11 +1118,9 @@ TEMPLATE = """
           row.style.border = '1px solid #e2e8f0';
           row.style.borderRadius = '10px';
           row.style.background = 'white';
-
           const name = document.createElement('span');
           name.textContent = key;
           name.style.flex = '1';
-
           const removeBtn = document.createElement('button');
           removeBtn.type = 'button';
           removeBtn.className = 'btn btn-ghost';
@@ -1222,16 +1131,13 @@ TEMPLATE = """
             codeStore.delete(key);
             rebuildCodeFiles();
           });
-
           row.appendChild(name);
           row.appendChild(removeBtn);
           codeFileList.appendChild(row);
         }
       });
-
       codeFilesManaged.files = dt.files;
     }
-
     function addCodeFiles(fileList) {
       if (!fileList) return;
       Array.from(fileList).forEach((file) => {
@@ -1243,21 +1149,18 @@ TEMPLATE = """
       if (rememberInputs) rememberInputs.checked = true;
       rebuildCodeFiles();
     }
-
     if (codeFilesPicker) {
       codeFilesPicker.addEventListener('change', (event) => {
         addCodeFiles(event.target.files);
         codeFilesPicker.value = '';
       });
     }
-
     if (codeFolderPicker) {
       codeFolderPicker.addEventListener('change', (event) => {
         addCodeFiles(event.target.files);
         codeFolderPicker.value = '';
       });
     }
-
     if (answersForm) {
       const rel = document.createElement('input');
       rel.type = 'hidden';
@@ -1266,7 +1169,6 @@ TEMPLATE = """
       answersForm.prepend(rel);
       answersReleaseInput = rel;
     }
-
     if (chatForm) {
       const relChat = document.createElement('input');
       relChat.type = 'hidden';
@@ -1275,7 +1177,6 @@ TEMPLATE = """
       chatForm.prepend(relChat);
       chatReleaseInput = relChat;
     }
-
     if (templateSelect && removeTemplateButton) {
       const syncRemoveTarget = () => {
         removeTemplateButton.value = templateSelect.value || removeTemplateButton.value;
@@ -1306,7 +1207,6 @@ TEMPLATE = """
         loading.classList.add('visible');
       });
     }
-
     if (connectionToggle && connectionBody) {
       const persisted = localStorage.getItem('medtronic-connection-hidden');
       if (persisted === 'true') {
@@ -1321,14 +1221,12 @@ TEMPLATE = """
         localStorage.setItem('medtronic-connection-hidden', String(nextHidden));
       });
     }
-
     const rawDraft = {{ draft|tojson if draft else 'null' }};
     const jsonView = document.getElementById('jsonView');
     const friendlyView = document.getElementById('friendlyView');
     const toggleJson = document.getElementById('viewToggleJson');
     const toggleFriendly = document.getElementById('viewToggleFriendly');
     const copyAll = document.getElementById('copyAll');
-
     function rawDraftText() {
       if (rawDraft === null || rawDraft === undefined) return '';
       if (typeof rawDraft === 'string') return rawDraft;
@@ -1338,7 +1236,6 @@ TEMPLATE = """
         return '' + rawDraft;
       }
     }
-
     function parseDraft() {
       if (rawDraft === null || rawDraft === undefined || rawDraft === '') return null;
       if (typeof rawDraft === 'string') {
@@ -1350,7 +1247,6 @@ TEMPLATE = """
       }
       return rawDraft;
     }
-
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -1359,7 +1255,6 @@ TEMPLATE = """
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
-
     function formatValue(value, depth = 0) {
       if (value === null || value === undefined || value === '') return '<span style="color:#94a3b8;">(empty)</span>';
       if (Array.isArray(value)) {
@@ -1376,7 +1271,6 @@ TEMPLATE = """
       }
       return escapeHtml(value);
     }
-
     function renderFriendly() {
       if (!friendlyView) return;
       const parsed = parseDraft();
@@ -1384,9 +1278,7 @@ TEMPLATE = """
         friendlyView.textContent = 'Could not parse JSON. Use the JSON view to copy manually.';
         return;
       }
-
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
-
       const sections = [];
       if (answers.length) {
         const list = answers
@@ -1402,10 +1294,8 @@ TEMPLATE = """
           sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
         }
       }
-
       friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
     }
-
     if (toggleJson && toggleFriendly && jsonView && friendlyView) {
       toggleJson.addEventListener('click', () => {
         jsonView.style.display = 'block';
@@ -1424,13 +1314,11 @@ TEMPLATE = """
         toggleJson.style.background = 'rgba(34,211,238,0.05)';
         toggleJson.style.borderColor = 'rgba(34,211,238,0.2)';
       });
-      // default to friendly view when available
       renderFriendly();
       jsonView.textContent = rawDraftText();
       jsonView.style.display = 'none';
       friendlyView.style.display = 'block';
     }
-
     if (copyAll && rawDraft !== null) {
       copyAll.addEventListener('click', async () => {
         try {
