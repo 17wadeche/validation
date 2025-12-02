@@ -629,15 +629,38 @@ def index():
             templates=final_templates,
             examples=_dedupe_by_name(final_examples),
         )
-        if not selected_template_name and persisted_inputs.templates:
-            selected_template_name = persisted_inputs.templates[0].name
-        existing_example_names = {ex.name for ex in persisted_inputs.examples}
+
+        # Respect "remember inputs" for persistence, but never drop saved
+        # examples from the UI. If the user disables persistence, keep the
+        # previously saved examples for display without overwriting the on-disk
+        # store.
+        should_persist_inputs = remember_inputs or bool(stored_examples)
+        if should_persist_inputs:
+            save_inputs(persisted_inputs)
+        else:
+            persisted_inputs = SavedInputs(
+                templates=stored_inputs.templates,
+                examples=list(stored_inputs.examples),
+            )
+
+        # Merge stored examples with any newly uploaded ones for display so
+        # unchecked items remain in the list across runs.
+        render_examples = _dedupe_by_name(
+            list(stored_inputs.examples) + list(persisted_inputs.examples)
+        )
+        render_inputs = SavedInputs(
+            templates=persisted_inputs.templates,
+            examples=render_examples,
+        )
+
+        if not selected_template_name and render_inputs.templates:
+            selected_template_name = render_inputs.templates[0].name
+        existing_example_names = {ex.name for ex in render_inputs.examples}
         selected_example_names = [
             name for name in selected_example_names if name in existing_example_names
         ]
-        if not selected_example_names and persisted_inputs.examples:
-            selected_example_names = [ex.name for ex in persisted_inputs.examples]
-        save_inputs(persisted_inputs)
+        if not selected_example_names and render_inputs.examples:
+            selected_example_names = [ex.name for ex in render_inputs.examples]
 
         if client and client.last_refresh and remember_credentials:
             stored = StoredCredentials(
@@ -796,7 +819,7 @@ def index():
         defaults=defaults,
         history=history,
         stored=stored,
-        saved_inputs=persisted_inputs,
+        saved_inputs=render_inputs if request.method == "POST" else stored_inputs,
         plan_text=plan_text,
         draft_questions=draft_questions,
         code_context=code_context_text,
