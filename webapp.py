@@ -278,6 +278,7 @@ def index():
     draft_json_from_form: str = ""
     release_type: str = "initial"
     selected_template_name: str = stored_inputs.templates[0].name if stored_inputs.templates else ""
+    selected_example_names: List[str] = [ex.name for ex in stored_inputs.examples]
 
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -311,15 +312,18 @@ def index():
         keep_flags_present = any(
             key.startswith("keep_example_") for key in request.form.keys()
         )
+        selected_example_names = []
         for idx, saved_example in enumerate(all_saved_examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
             if keep_flags_present:
                 if keep_flag == "on":
                     kept_saved_examples_prompt.append(saved_example)
+                    selected_example_names.append(saved_example.name)
             else:
                 # Default to using all saved examples when no keep flags are posted
                 # (e.g., from chat/answers forms).
                 kept_saved_examples_prompt.append(saved_example)
+                selected_example_names.append(saved_example.name)
 
         template_choice = request.form.get("selected_template", "")
         if template_choice and template_choice.strip():
@@ -364,6 +368,7 @@ def index():
             save_inputs(persisted_inputs)
             stored_inputs = persisted_inputs
             selected_template_name = updated_templates[0].name if updated_templates else ""
+            selected_example_names = [ex.name for ex in persisted_inputs.examples]
             draft = draft_json_from_form or draft
             draft_questions = _extract_questions_from_json(draft) if draft else []
             return render_template_string(
@@ -381,6 +386,7 @@ def index():
                 code_context=code_context_text,
                 release_type=release_type,
                 selected_template_name=selected_template_name,
+                selected_example_names=selected_example_names,
                 missing_placeholders=missing_placeholders,
             )
 
@@ -392,6 +398,7 @@ def index():
             save_inputs(persisted_inputs)
             stored_inputs = persisted_inputs
             kept_saved_examples = updated_examples
+            selected_example_names = [ex.name for ex in persisted_inputs.examples]
             draft = draft_json_from_form or draft
             draft_questions = _extract_questions_from_json(draft) if draft else []
             return render_template_string(
@@ -409,6 +416,7 @@ def index():
                 code_context=code_context_text,
                 release_type=release_type,
                 selected_template_name=selected_template_name,
+                selected_example_names=selected_example_names,
                 missing_placeholders=missing_placeholders,
             )
 
@@ -430,6 +438,8 @@ def index():
         )
         if stored_template:
             selected_template_name = stored_template.name
+        if stored_examples:
+            selected_example_names.extend(ex.name for ex in stored_examples)
         code_context_text = code_context
         if not template_bytes and selected_template_file:
             try:
@@ -621,6 +631,12 @@ def index():
         )
         if not selected_template_name and persisted_inputs.templates:
             selected_template_name = persisted_inputs.templates[0].name
+        existing_example_names = {ex.name for ex in persisted_inputs.examples}
+        selected_example_names = [
+            name for name in selected_example_names if name in existing_example_names
+        ]
+        if not selected_example_names and persisted_inputs.examples:
+            selected_example_names = [ex.name for ex in persisted_inputs.examples]
         save_inputs(persisted_inputs)
 
         if client and client.last_refresh and remember_credentials:
@@ -790,6 +806,7 @@ def index():
         missing_placeholders=missing_placeholders,
         release_type=release_type,
         selected_template_name=selected_template_name,
+        selected_example_names=selected_example_names,
     )
 
 
@@ -1012,7 +1029,7 @@ TEMPLATE = """
                     {% for example in saved_inputs.examples %}
                       <div style="display:flex; align-items:center; gap:10px;">
                         <label class="checkbox" style="margin:0; flex:1;">
-                          <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" checked>
+                          <input type="checkbox" name="keep_example_{{ loop.index0 }}" id="keep_example_{{ loop.index0 }}" {% if example.name in selected_example_names %}checked{% endif %}>
                           <span>{{ example.name }}</span>
                         </label>
                         <button type="button" class="btn btn-ghost" data-remove-example="{{ example.name }}" title="Remove example" style="padding:8px 10px;">&#8722;</button>
@@ -1137,7 +1154,9 @@ TEMPLATE = """
             <input type="hidden" name="api_token" value="{{ stored.api_token }}">
             <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
             {% for example in saved_inputs.examples %}
-              <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+              {% if example.name in selected_example_names %}
+                <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+              {% endif %}
             {% endfor %}
             {% for q in draft_questions %}
               <div style="margin-top: 12px;">
@@ -1221,7 +1240,9 @@ TEMPLATE = """
           <input type="hidden" name="plan_text" value="{{ plan_text }}">
           <input type="hidden" name="selected_template" value="{{ selected_template_name }}">
           {% for example in saved_inputs.examples %}
-            <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+            {% if example.name in selected_example_names %}
+              <input type="hidden" name="keep_example_{{ loop.index0 }}" value="on">
+            {% endif %}
           {% endfor %}
           <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
           <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
