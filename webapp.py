@@ -309,8 +309,9 @@ def index():
         # current prompt so unselected examples remain available next time.
         kept_saved_examples_prompt: List[StoredFile] = []
         all_saved_examples: List[StoredFile] = list(stored_inputs.examples)
-        keep_flags_present = any(
-            key.startswith("keep_example_") for key in request.form.keys()
+        keep_flags_present = (
+            request.form.get("keep_flags_present") == "1"
+            or any(key.startswith("keep_example_") for key in request.form.keys())
         )
         selected_example_names = []
         for idx, saved_example in enumerate(all_saved_examples):
@@ -1046,10 +1047,14 @@ TEMPLATE = """
           <h3>Examples</h3>
           <p>Provide example docs to guide tone and structure.</p>
           <div class="stack">
+            <input type="hidden" name="keep_flags_present" id="keepFlagsPresent" value="0">
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
               <div class="stack" style="gap:8px;">
                 <div class="pill" style="background: rgba(34,211,238,0.1); color: #067bc7; border-color: rgba(34,211,238,0.25);">Saved examples</div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <button type="button" class="btn btn-ghost" id="deselectExamples" style="padding:6px 10px;">Deselect all</button>
+                </div>
                 <div class="saved-scroll">
                   <div class="stack" style="gap:6px;">
                     {% for example in saved_inputs.examples %}
@@ -1309,6 +1314,9 @@ TEMPLATE = """
     const rememberInputs = document.querySelector('input[name="remember_inputs"]');
     const templateInput = document.querySelector('input[name="template_file"]');
     const examplesInput = document.querySelector('input[name="examples"]');
+    const keepFlagsPresentInput = document.getElementById('keepFlagsPresent');
+    const deselectExamplesButton = document.getElementById('deselectExamples');
+    const savedExampleCheckboxes = Array.from(document.querySelectorAll('input[name^="keep_example_"]'));
     const codeFilesManaged = document.getElementById('codeFilesManaged');
     const codeFilesPicker = document.getElementById('codeFilesPicker');
     const codeFolderPicker = document.getElementById('codeFolderPicker');
@@ -1370,6 +1378,22 @@ TEMPLATE = """
       examplesInput.addEventListener('change', () => {
         if (rememberInputs) rememberInputs.checked = true;
         submitWithAction('save_examples');
+      });
+    }
+
+    savedExampleCheckboxes.forEach((cb) => {
+      cb.addEventListener('change', () => {
+        if (keepFlagsPresentInput) keepFlagsPresentInput.value = '1';
+      });
+    });
+
+    if (deselectExamplesButton) {
+      deselectExamplesButton.addEventListener('click', () => {
+        savedExampleCheckboxes.forEach((cb) => {
+          cb.checked = false;
+        });
+        if (keepFlagsPresentInput) keepFlagsPresentInput.value = '1';
+        if (rememberInputs) rememberInputs.checked = true;
       });
     }
 
