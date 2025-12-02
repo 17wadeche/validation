@@ -302,19 +302,24 @@ def index():
         remove_example_name = request.form.get("remove_example", "").strip()
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
-        kept_saved_examples: List[StoredFile] = []
+
+        # Saved examples should persist even when they aren't selected for this
+        # run. Track the full saved set separately from the subset used in the
+        # current prompt so unselected examples remain available next time.
+        kept_saved_examples_prompt: List[StoredFile] = []
+        all_saved_examples: List[StoredFile] = list(stored_inputs.examples)
         keep_flags_present = any(
             key.startswith("keep_example_") for key in request.form.keys()
         )
-        for idx, saved_example in enumerate(stored_inputs.examples):
+        for idx, saved_example in enumerate(all_saved_examples):
             keep_flag = request.form.get(f"keep_example_{idx}")
             if keep_flags_present:
                 if keep_flag == "on":
-                    kept_saved_examples.append(saved_example)
+                    kept_saved_examples_prompt.append(saved_example)
             else:
-                # If no keep flags were posted (e.g., from the answers/chat form),
-                # keep all saved examples by default so context is preserved.
-                kept_saved_examples.append(saved_example)
+                # Default to using all saved examples when no keep flags are posted
+                # (e.g., from chat/answers forms).
+                kept_saved_examples_prompt.append(saved_example)
 
         template_choice = request.form.get("selected_template", "")
         if template_choice and template_choice.strip():
@@ -333,7 +338,7 @@ def index():
 
         # defaults in case inputs are not being remembered
         final_templates: List[StoredFile] = available_templates
-        final_examples: List[StoredFile] = kept_saved_examples
+        final_examples: List[StoredFile] = all_saved_examples
 
         plan_text = request.form.get("plan_text", "")
         remember_credentials = request.form.get("remember_credentials") == "on"
@@ -419,7 +424,7 @@ def index():
             request.form,
             request.files,
             selected_template_file,
-            kept_saved_examples,
+            kept_saved_examples_prompt,
             plan_text,
             release_type,
         )
@@ -609,7 +614,7 @@ def index():
         # Always carry forward newly uploaded examples so they stay available
         # for selection on the next render. Users can uncheck or remove them as
         # needed, but uploads should persist by default.
-        final_examples = _dedupe_by_name(kept_saved_examples + stored_examples)
+        final_examples = _dedupe_by_name(all_saved_examples + stored_examples)
         persisted_inputs = SavedInputs(
             templates=final_templates,
             examples=_dedupe_by_name(final_examples),
