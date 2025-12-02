@@ -621,20 +621,23 @@ def index():
             final_templates = _dedupe_by_name([stored_template] + final_templates)
             selected_template_name = stored_template.name
 
-        # Always carry forward newly uploaded examples so they stay available
-        # for selection on the next render. Users can uncheck or remove them as
-        # needed, but uploads should persist by default.
-        final_examples = _dedupe_by_name(all_saved_examples + stored_examples)
+        # Always carry forward all saved examples plus any newly uploaded
+        # examples so they remain visible even when unchecked for this run.
+        merged_examples = _dedupe_by_name(
+            list(stored_inputs.examples) + all_saved_examples + stored_examples
+        )
         persisted_inputs = SavedInputs(
             templates=final_templates,
-            examples=_dedupe_by_name(final_examples),
+            examples=merged_examples,
         )
 
         # Respect "remember inputs" for persistence, but never drop saved
         # examples from the UI. If the user disables persistence, keep the
         # previously saved examples for display without overwriting the on-disk
         # store.
-        should_persist_inputs = remember_inputs or bool(stored_examples)
+        should_persist_inputs = remember_inputs or bool(stored_examples) or bool(
+            stored_inputs.examples
+        )
         if should_persist_inputs:
             save_inputs(persisted_inputs)
         else:
