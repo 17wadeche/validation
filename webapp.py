@@ -303,6 +303,7 @@ def index():
         remove_example_name = request.form.get("remove_example", "").strip()
         clear_saved_templates = request.form.get("clear_templates") == "on"
         keep_saved_templates = not clear_saved_templates
+        remember_inputs = request.form.get("remember_inputs") == "on"
 
         # Saved examples should persist even when they aren't selected for this
         # run. Track the full saved set separately from the subset used in the
