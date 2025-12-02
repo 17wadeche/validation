@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import List
 
 DEFAULT_INPUT_STORE = Path.home() / ".validation_agent" / "inputs.json"
+# If the primary location is unavailable (e.g., locked-down home directory in a
+# packaged build), fall back to a project-local store so uploads persist.
+FALLBACK_INPUT_STORE = Path(".validation_agent") / "inputs.json"
 
 
 @dataclass
@@ -30,7 +33,7 @@ class SavedInputs:
     examples: List[StoredFile] = field(default_factory=list)
 
 
-def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
+def _load_from_path(store: Path) -> SavedInputs:
     if not store.exists():
         return SavedInputs()
     try:
@@ -62,7 +65,26 @@ def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
         return SavedInputs()
 
 
+def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
+    """Load persisted inputs, falling back to a local store if needed."""
+
+    primary = _load_from_path(store)
+    if primary.templates or primary.examples or store.exists():
+        return primary
+
+    # If the primary store is empty or unavailable, try the fallback.
+    return _load_from_path(FALLBACK_INPUT_STORE)
+
+
 def save_inputs(saved: SavedInputs, store: Path = DEFAULT_INPUT_STORE) -> None:
-    store.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(saved)
-    store.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    try:
+        store.parent.mkdir(parents=True, exist_ok=True)
+        store.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return
+    except Exception:
+        # Fall back to a local project directory so inputs persist even when
+        # the home directory is locked down (e.g., packaged EXE on Windows).
+        fallback = FALLBACK_INPUT_STORE
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        fallback.write_text(json.dumps(payload, indent=2), encoding="utf-8")
