@@ -916,9 +916,18 @@ TEMPLATE = """
               <span>Generate answers with MedtronicGPT</span>
             </label>
             <div style=\"margin-top: 10px; display:grid; gap:10px;\">
-              <div class=\"field\">
-                <label for=\"base_url\" class=\"muted\" style=\"font-weight:600;\">Base URL</label>
-                <input class=\"input\" id=\"base_url\" type=\"text\" name=\"base_url\" placeholder=\"Base URL\" value=\"{{ defaults.base_url }}\">
+              <div class="field">
+                <label for="base_url" class="muted" style="font-weight:600;">Base URL</label>
+                <select class="input" id="base_url" name="base_url">
+                  <option value="https://api.gpt.medtronic.com"
+                    {% if defaults.base_url == "https://api.gpt.medtronic.com" %}selected{% endif %}>
+                    https://api.gpt.medtronic.com
+                  </option>
+                  <option value="https://api.gpt-dev.medtronic.com"
+                    {% if defaults.base_url == "https://api.gpt-dev.medtronic.com" %}selected{% endif %}>
+                    https://api.gpt-dev.medtronic.com
+                  </option>
+                </select>
               </div>
               <div class=\"field\">
                 <label for=\"path_template\" class=\"muted\" style=\"font-weight:600;\">Path template</label>

@@ -23,7 +23,14 @@ def _run_pbitools_extract(pbix_path: Path) -> Path | None:
         exe = "pbi-tools"
     tmp_dir = tempfile.mkdtemp(prefix="pbitools_extract_")
     out_dir = Path(tmp_dir)
-    cmd = [exe, "extract", str(pbix_path), "-o", str(out_dir)]
+    cmd = [
+        exe,
+        "convert",
+        str(pbix_path),
+        str(out_dir),
+        "Legacy",   # modelSerialization: Legacy/Tmdl/etc.
+        "Default",  # mashupSerialization
+    ]
     logger.info("pbi-tools: starting extract")
     logger.info("pbi-tools: exe=%r tmp_dir=%s", exe, out_dir)
     logger.info("pbi-tools: full command: %s", " ".join(cmd))
