@@ -46,6 +46,8 @@ missing module named _manylinux - imported by packaging._manylinux (delayed, opt
 missing module named importlib_resources - imported by setuptools._vendor.jaraco.text (optional)
 missing module named trove_classifiers - imported by setuptools.config._validate_pyproject.formats (optional)
 missing module named pyimod02_importers - imported by C:\validation\.venv\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgutil.py (delayed)
+missing module named oletools - imported by src.validation_agent.workbook_loader (delayed, optional)
+missing module named openpyxl - imported by src.validation_agent.workbook_loader (delayed, optional)
 missing module named PIL - imported by pypdf._xobj_image_helpers (optional), pypdf (optional)
 missing module named 'PIL.Image' - imported by pypdf._page (optional)
 missing module named 'Crypto.Util' - imported by pypdf._crypt_providers._pycryptodome (top-level)

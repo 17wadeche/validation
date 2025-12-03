@@ -401,57 +401,59 @@ def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
     extract_root = _run_pbitools_extract(path)
     if extract_root is not None:
         logger.info("PBIX: using pbi-tools extract at %s", extract_root)
+
         model_section = _pbitools_model_summary(extract_root)
         if model_section:
             logger.info("PBIX: pbi-tools model summary length = %d chars", len(model_section))
             parts.append(model_section)
-        else:
-            logger.info("PBIX: pbi-tools returned no model summary.")
         layout_section = _pbitools_layout_summary(extract_root)
         if layout_section:
             logger.info("PBIX: pbi-tools layout summary length = %d chars", len(layout_section))
             parts.append(layout_section)
-        else:
-            logger.info("PBIX: pbi-tools returned no layout summary.")
     else:
         logger.warning("PBIX: pbi-tools extract unavailable; falling back to raw ZIP heuristics.")
-    if not parts:
-        try:
-            logger.info("PBIX: opening file as zip for heuristic extraction.")
-            with zipfile.ZipFile(path) as zf:
-                names = zf.namelist()
-                logger.info("PBIX: zip contains %d members", len(names))
-
+    try:
+        logger.info("PBIX: opening file as zip for additional heuristic extraction.")
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+            logger.info("PBIX: zip contains %d members", len(names))
+            if not any("Data model" in p for p in parts):
                 model_section = _pbix_extract_model(zf, names)
                 if model_section:
                     logger.info("PBIX: heuristic model summary length = %d chars", len(model_section))
                     parts.append(model_section)
-                sql_section = _pbix_extract_sql_like(zf, names)
-                if sql_section:
-                    logger.info("PBIX: heuristic SQL-like summary length = %d chars", len(sql_section))
-                    parts.append(sql_section)
-                if not parts:
-                    if any(n.endswith("DataModel") or n.lower().endswith("datamodel") for n in names):
-                        msg = (
-                            "[PBIX contains a binary DataModel that this helper does not decode. "
-                            "Install pbi-tools and ensure it is on PATH (or set PBI_TOOLS_EXE) "
-                            "to extract the Tabular model as JSON.]"
-                        )
-                        logger.warning("PBIX: %s", msg)
-                        parts.append(msg)
-                    else:
-                        msg = (
-                            "[No SQL-like queries or model details were detected in this PBIX. "
-                            "Queries may be stored in mashups or require a dedicated PBIX parser.]"
-                        )
-                        logger.warning("PBIX: %s", msg)
-                        parts.append(msg)
-        except Exception as exc:
-            logger.exception("PBIX: zip-based extraction failed: %s", exc)
-            parts.append(
-                f"[PBIX extraction failed: {type(exc).__name__}: {exc}. "
-                "To get full SQL and model details, ensure pbi-tools is installed and reachable.]"
-            )
+            layout_section = _pbix_extract_layout(zf, names)
+            if layout_section:
+                logger.info("PBIX: heuristic layout summary length = %d chars", len(layout_section))
+                parts.append(layout_section)
+            queries_section = _pbix_extract_queries(zf, names)
+            if not queries_section:
+                queries_section = _pbix_extract_sql_like(zf, names)
+            if queries_section:
+                logger.info("PBIX: heuristic SQL/DAX summary length = %d chars", len(queries_section))
+                parts.append(queries_section)
+            if not parts:
+                if any(n.endswith("DataModel") or n.lower().endswith("datamodel") for n in names):
+                    msg = (
+                        "[PBIX contains a binary DataModel that this helper does not decode. "
+                        "Install pbi-tools and ensure it is on PATH (or set PBI_TOOLS_EXE) "
+                        "to extract the Tabular model as JSON.]"
+                    )
+                    logger.warning("PBIX: %s", msg)
+                    parts.append(msg)
+                else:
+                    msg = (
+                        "[No SQL-like queries or model details were detected in this PBIX. "
+                        "Queries may be stored in mashups or require a dedicated PBIX parser.]"
+                    )
+                    logger.warning("PBIX: %s", msg)
+                    parts.append(msg)
+    except Exception as exc:
+        logger.exception("PBIX: zip-based extraction failed: %s", exc)
+        parts.append(
+            f"[PBIX extraction failed: {type(exc).__name__}: {exc}. "
+            "To get full SQL and model details, ensure pbi-tools is installed and reachable.]"
+        )
     text = header + "\n".join(parts)
     logger.info("PBIX: final extracted context length = %d chars", len(text))
     logger.info("PBIX: preview of extracted context:\n%s", text[:500])

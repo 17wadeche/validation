@@ -235,6 +235,7 @@ def _build_prompt_from_request(
     )
 @app.route("/", methods=["GET", "POST"])
 def index():
+    app.logger.info("index() called, method=%s", request.method)
     prompt: Optional[str] = None
     draft: Optional[str] = None
     error: Optional[str] = None
@@ -356,6 +357,39 @@ def index():
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
             )
+        if action == "clear":
+            prompt = None
+            draft = None
+            error = None
+            history = []
+            plan_text = ""
+            draft_questions = []
+            draft_json_from_form = ""
+            code_context_text = ""
+            coverage_note = None
+            template_text = ""
+            missing_placeholders = []
+            release_type = "initial"
+            persisted_inputs = stored_inputs
+            return render_template_string(
+                TEMPLATE,
+                prompt=prompt,
+                draft=draft,
+                error=error,
+                defaults=defaults,
+                history=history,
+                stored=stored,
+                saved_inputs=persisted_inputs,
+                plan_text=plan_text,
+                draft_questions=draft_questions,
+                draft_json=draft_json_from_form,
+                code_context=code_context_text,
+                coverage_note=coverage_note,
+                template_text=template_text,
+                missing_placeholders=missing_placeholders,
+                release_type=release_type,
+                selected_template_name=selected_template_name,
+          )
         (
             prompt,
             template_bytes,
@@ -715,6 +749,15 @@ TEMPLATE = """
       min-width: 260px;
       border: 1px solid var(--border);
     }
+    .scroll-bottom-btn {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      z-index: 60;
+      border-radius: 999px;
+      padding-inline: 18px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.35);
+    }
     .spinner {
       width: 24px;
       height: 24px;
@@ -909,10 +952,13 @@ TEMPLATE = """
           </div>
         </div>
         </div>
-        <div class=\"actions\" style=\"margin-top: 12px; justify-content:flex-start;\">
-          <button class=\"btn btn-primary\" type=\"submit\" name=\"action\" value=\"build\">Generate answers</button>
-          <label class=\"checkbox\" style=\"gap:6px;\">
-            <input type=\"checkbox\" name=\"remember_inputs\" checked>
+        <div class="actions" style="margin-top: 12px; justify-content:flex-start;">
+          <button class="btn btn-primary" type="submit" name="action" value="build">Generate answers</button>
+          <button class="btn btn-ghost" type="submit" name="action" value="clear">
+            Clear current run
+          </button>
+          <label class="checkbox" style="gap:6px;">
+            <input type="checkbox" name="remember_inputs" checked>
             <span>Remember uploaded template and examples on this device</span>
           </label>
         </div>
@@ -1025,6 +1071,14 @@ TEMPLATE = """
       </div>
     </div>
     </div>
+    <button
+      type="button"
+      id="scrollBottomBtn"
+      class="btn btn-primary scroll-bottom-btn"
+      title="Go to bottom"
+    >
+      ↓ Bottom
+    </button>
     <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
@@ -1047,6 +1101,7 @@ TEMPLATE = """
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
     const uncheckAllExamplesButton = document.getElementById('uncheckAllExamples');
+    const scrollBottomBtn = document.getElementById('scrollBottomBtn');
     function submitWithAction(actionValue) {
       if (!mainForm) return;
       const hidden = document.createElement('input');
@@ -1076,6 +1131,20 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
+    if (scrollBottomBtn) {
+      scrollBottomBtn.addEventListener('click', () => {
+        const doc = document.documentElement;
+        const height = Math.max(
+          doc.scrollHeight,
+          document.body.scrollHeight,
+          doc.clientHeight
+        );
+        window.scrollTo({
+          top: height,
+          behavior: 'smooth',
+        });
+      });
+    }
     if (removeExampleButtons.length && mainForm && removeExampleInput) {
       removeExampleButtons.forEach((btn) => {
         btn.addEventListener('click', (event) => {
