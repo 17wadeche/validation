@@ -25,11 +25,11 @@ def _run_pbitools_extract(pbix_path: Path) -> Path | None:
     out_dir = Path(tmp_dir)
     cmd = [
         exe,
-        "convert",
+        "extract",
         str(pbix_path),
-        str(out_dir),
-        "Legacy",   # modelSerialization: Legacy/Tmdl/etc.
-        "Default",  # mashupSerialization
+        "-extractFolder", str(out_dir),
+        "-modelSerialization", "Legacy",      # ensures Model/DataModelSchema.json
+        "-mashupSerialization", "Default",
     ]
     logger.info("pbi-tools: starting extract")
     logger.info("pbi-tools: exe=%r tmp_dir=%s", exe, out_dir)
@@ -63,21 +63,26 @@ def _run_pbitools_extract(pbix_path: Path) -> Path | None:
         return None
     logger.info("pbi-tools extract succeeded, output directory: %s", out_dir)
     return out_dir
-def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
+def _pbitools_model_summary(extract_root: Path, max_tables: int = 40, max_relationships: int = 80) -> str:
     schema_path = extract_root / "Model" / "DataModelSchema.json"
+    if not schema_path.exists():
+        alt = extract_root / "Model" / "database.json"
+        if alt.exists():
+            schema_path = alt
     logger.info("pbi-tools: looking for model schema at %s", schema_path)
     if not schema_path.exists():
-        logger.warning("pbi-tools: DataModelSchema.json not found, skipping model summary.")
+        logger.warning("pbi-tools: DataModelSchema/database.json not found, skipping model summary.")
         return ""
     try:
         data = json.loads(schema_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.exception("pbi-tools: failed to parse DataModelSchema.json: %s", exc)
+        logger.exception("pbi-tools: failed to parse model json: %s", exc)
         return ""
     model = data.get("model") or data
     tables = model.get("tables") or []
-    logger.info("pbi-tools: model has %d tables", len(tables))
-    if not tables:
+    relationships = model.get("relationships") or []
+    logger.info("pbi-tools: model has %d tables, %d relationships", len(tables), len(relationships))
+    if not tables and not relationships:
         return ""
     parts: List[str] = ["## Data model (from pbi-tools)"]
     for idx, tbl in enumerate(tables, start=1):
@@ -110,6 +115,26 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
                     parts.append(f"  - {mname}: {expr_short}")
                 else:
                     parts.append(f"  - {mname}")
+    if relationships:
+        parts.append("\n## Relationships")
+        for rel in relationships[:max_relationships]:
+            from_table = rel.get("fromTable") or rel.get("fromTableName") or "?"
+            to_table = rel.get("toTable") or rel.get("toTableName") or "?"
+            from_col = rel.get("fromColumn") or rel.get("fromColumnName") or "?"
+            to_col = rel.get("toColumn") or rel.get("toColumnName") or "?"
+            is_active = rel.get("isActive")
+            cross_filter = (
+                rel.get("crossFilteringBehavior")
+                or rel.get("crossFilterDirection")
+                or ""
+            )
+            parts.append(
+                f"- {from_table}[{from_col}] → {to_table}[{to_col}]"
+                f"{' (active)' if is_active else ''}"
+                f"{f', cross-filter: {cross_filter}' if cross_filter else ''}"
+            )
+        if len(relationships) > max_relationships:
+            parts.append(f"- … {len(relationships) - max_relationships} more relationships not listed")
     return "\n".join(parts).strip()
 def _pbitools_layout_summary(extract_root: Path, max_visuals_per_page: int = 10) -> str:
     layout_path = extract_root / "Report" / "Layout"
@@ -433,12 +458,6 @@ def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
             if layout_section:
                 logger.info("PBIX: heuristic layout summary length = %d chars", len(layout_section))
                 parts.append(layout_section)
-            queries_section = _pbix_extract_queries(zf, names)
-            if not queries_section:
-                queries_section = _pbix_extract_sql_like(zf, names)
-            if queries_section:
-                logger.info("PBIX: heuristic SQL/DAX summary length = %d chars", len(queries_section))
-                parts.append(queries_section)
             if not parts:
                 if any(n.endswith("DataModel") or n.lower().endswith("datamodel") for n in names):
                     msg = (
