@@ -3,11 +3,168 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 import textwrap
+import zipfile
+import xml.etree.ElementTree as ET
+import json
+import subprocess
+import tempfile
+import os
+import logging
+import sys
+logger = logging.getLogger(__name__)
+EXCEL_SUFFIXES = {".xlsm", ".xls", ".xlsx", ".xlsb"}
+def _run_pbitools_extract(pbix_path: Path) -> Path | None:
+    exe = os.getenv("PBI_TOOLS_EXE")
+    if not exe and getattr(sys, "frozen", False):
+        exe_candidate = Path(sys.executable).with_name("pbi-tools.exe")
+        if exe_candidate.exists():
+            exe = str(exe_candidate)
+    if not exe:
+        exe = "pbi-tools"
+    tmp_dir = tempfile.mkdtemp(prefix="pbitools_extract_")
+    out_dir = Path(tmp_dir)
+    cmd = [exe, "extract", str(pbix_path), "-o", str(out_dir)]
+    logger.info("pbi-tools: starting extract")
+    logger.info("pbi-tools: exe=%r tmp_dir=%s", exe, out_dir)
+    logger.info("pbi-tools: full command: %s", " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        logger.error(
+            "pbi-tools executable %r not found. "
+            "Make sure it is installed in this environment and on PATH, "
+            "or set PBI_TOOLS_EXE to an absolute path.",
+            exe,
+        )
+        return None
+    except Exception as exc:
+        logger.exception("Unexpected error when running pbi-tools: %s", exc)
+        return None
+    logger.info("pbi-tools: return code = %s", result.returncode)
+    if result.stdout:
+        logger.info("pbi-tools STDOUT:\n%s", result.stdout)
+    if result.stderr:
+        logger.info("pbi-tools STDERR:\n%s", result.stderr)
+    if result.returncode != 0:
+        logger.error("pbi-tools extract failed with code %s; skipping JSON model.", result.returncode)
+        return None
+    logger.info("pbi-tools extract succeeded, output directory: %s", out_dir)
+    return out_dir
+def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
+    schema_path = extract_root / "Model" / "DataModelSchema.json"
+    logger.info("pbi-tools: looking for model schema at %s", schema_path)
+    if not schema_path.exists():
+        logger.warning("pbi-tools: DataModelSchema.json not found, skipping model summary.")
+        return ""
+    try:
+        data = json.loads(schema_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.exception("pbi-tools: failed to parse DataModelSchema.json: %s", exc)
+        return ""
+    model = data.get("model") or data
+    tables = model.get("tables") or []
+    logger.info("pbi-tools: model has %d tables", len(tables))
+    if not tables:
+        return ""
+    parts: List[str] = ["## Data model (from pbi-tools)"]
+    for idx, tbl in enumerate(tables, start=1):
+        if idx > max_tables:
+            parts.append(f"\n... {len(tables) - max_tables} more tables not listed")
+            break
+        tname = tbl.get("name") or "<unnamed table>"
+        cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
+        measures = tbl.get("measures") or []
+        logger.info(
+            "pbi-tools: table %d: name=%r, cols=%d, measures=%d",
+            idx,
+            tname,
+            len(cols),
+            len(measures),
+        )
+        parts.append(f"\n### Table: {tname}")
+        if cols:
+            col_list = ", ".join(cols[:25])
+            if len(cols) > 25:
+                col_list += " …"
+            parts.append(f"- Columns: {col_list}")
+        if measures:
+            parts.append("- Measures:")
+            for m in measures[:25]:
+                mname = m.get("name") or "<unnamed measure>"
+                expr = (m.get("expression") or "").strip()
+                if expr:
+                    expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
+                    parts.append(f"  - {mname}: {expr_short}")
+                else:
+                    parts.append(f"  - {mname}")
+    return "\n".join(parts).strip()
+def _pbitools_layout_summary(extract_root: Path, max_visuals_per_page: int = 10) -> str:
+    layout_path = extract_root / "Report" / "Layout"
+    logger.info("pbi-tools: looking for layout at %s", layout_path)
+    if not layout_path.exists():
+        logger.warning("pbi-tools: Layout file not found, skipping layout summary.")
+        return ""
+    raw = layout_path.read_bytes()
+    try:
+        text = raw.decode("utf-16le")
+    except UnicodeDecodeError:
+        logger.info("pbi-tools: Layout not UTF-16LE, falling back to UTF-8.")
+        text = raw.decode("utf-8", errors="ignore")
+    try:
+        data = json.loads(text)
+    except Exception as exc:
+        logger.exception("pbi-tools: failed to parse Layout JSON: %s", exc)
+        return ""
+    sections = data.get("sections", []) or []
+    logger.info("pbi-tools: layout has %d sections/pages", len(sections))
+    parts: List[str] = ["## Report pages and visuals (from pbi-tools)"]
+    for section in sections:
+        title = section.get("displayName") or section.get("name") or "<untitled page>"
+        visuals = section.get("visualContainers") or []
+        logger.info("pbi-tools: page %r has %d visuals", title, len(visuals))
+        parts.append(f"\n### Page: {title}")
+        parts.append(f"- Visual count: {len(visuals)}")
+        for vc in visuals[:max_visuals_per_page]:
+            cfg_raw = vc.get("config")
+            vis_title = None
+            vis_type = None
+            try:
+                cfg = json.loads(cfg_raw) if isinstance(cfg_raw, str) else cfg_raw
+            except Exception:
+                cfg = None
+            if cfg:
+                single = cfg.get("singleVisual") or cfg.get("singleVisualGroup") or {}
+                title_obj = single.get("title") or {}
+                vis_title = title_obj.get("text") or single.get("displayName")
+                vis_type = single.get("visualType") or single.get("groupType")
+            parts.append(f"  - {vis_title or '<untitled visual>'} ({vis_type or 'visual'})")
+        if len(visuals) > max_visuals_per_page:
+            parts.append(f"  - ... {len(visuals) - max_visuals_per_page} more visuals not listed")
+    return "\n".join(parts).strip()
 def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
     suffix = path.suffix.lower()
-    if suffix not in {".xlsm", ".xls", ".xlsx", ".xlsb"}:
+    if suffix not in EXCEL_SUFFIXES:
         raise ValueError(f"Not an Excel workbook: {path}")
     parts: List[str] = [f"# Excel workbook: {path.name}"]
+    structure = _extract_excel_structure(path)
+    if structure:
+        parts.append(structure)
+    sql_section = _extract_excel_sql_queries(path)
+    if sql_section:
+        parts.append(sql_section)
+    vba_section = _extract_excel_vba(path, max_chars=max_chars)
+    if vba_section:
+        parts.append(vba_section)
+    text = "\n".join(part for part in parts if part).strip()
+    return text[:max_chars]
+def _extract_excel_structure(path: Path) -> str:
+    parts: List[str] = []
     try:
         from openpyxl import load_workbook  # type: ignore
         wb = load_workbook(filename=str(path), data_only=False, keep_links=True)
@@ -15,37 +172,365 @@ def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
         parts.append("## Sheets")
         for s in sheet_names:
             parts.append(f"- {s}")
-        if wb.defined_names.definedName:
-            parts.append("\n## Named ranges")
-            for dn in wb.defined_names.definedName:
-                parts.append(f"- {dn.name}: {dn.attr_text}")
+        try:
+            defined = getattr(wb, "defined_names", None)
+            if defined and getattr(defined, "definedName", None):
+                parts.append("\n## Named ranges")
+                for dn in defined.definedName:
+                    parts.append(f"- {dn.name}: {dn.attr_text}")
+        except Exception:
+            pass
     except Exception:
         parts.append("\n[Could not read workbook structure via openpyxl.]")
+    return "\n".join(parts).strip()
+def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
+    queries: List[str] = []
+    connections: List[str] = []
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            if "xl/connections.xml" in names:
+                try:
+                    xml_bytes = zf.read("xl/connections.xml")
+                    root = ET.fromstring(xml_bytes)
+                    for node in root.iter():
+                        tag = node.tag.lower()
+                        if not tag.endswith("dbpr"):
+                            continue
+                        cmd = node.attrib.get("command", "") or ""
+                        conn = node.attrib.get("connection", "") or ""
+                        if cmd.strip():
+                            queries.append(cmd.strip())
+                        if conn.strip():
+                            connections.append(conn.strip())
+                except Exception:
+                    pass
+            for name in names:
+                if not (
+                    name.startswith("xl/queryTables/")
+                    and name.lower().endswith(".xml")
+                ):
+                    continue
+                try:
+                    xml_bytes = zf.read(name)
+                    root = ET.fromstring(xml_bytes)
+                    for node in root.iter():
+                        tag = node.tag.lower()
+                        if tag.endswith("command") or tag.endswith("sql"):
+                            txt = (node.text or "").strip()
+                            if txt:
+                                queries.append(txt)
+                except Exception:
+                    continue
+            if not queries:
+                for name in names:
+                    lname = name.lower()
+                    if not lname.endswith((".xml", ".rels", ".txt")):
+                        continue
+                    try:
+                        raw = zf.read(name)
+                    except Exception:
+                        continue
+                    try:
+                        text = raw.decode("utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    lowered = text.lower()
+                    if "select " not in lowered or " from " not in lowered:
+                        continue
+                    for line in text.splitlines():
+                        lline = line.lower()
+                        if "select " in lline and " from " in lline:
+                            stripped = line.strip()
+                            if stripped:
+                                queries.append(stripped)
+                                if len(queries) >= max_queries:
+                                    break
+                    if len(queries) >= max_queries:
+                        break
+    except Exception:
+        return ""
+    if not queries and not connections:
+        return ""
+    section: List[str] = ["\n## SQL queries / connections"]
+    if connections:
+        section.append("\n### Connections")
+        for idx, conn in enumerate(connections, start=1):
+            section.append(f"- Connection {idx}: {textwrap.shorten(conn, width=200, placeholder='...')}")
+    if queries:
+        section.append("\n### Queries")
+        for idx, q in enumerate(queries, start=1):
+            shortened = textwrap.shorten(q, width=800, placeholder=" ...")
+            section.append(
+                f"\n#### Query {idx}\n"
+                "```sql\n"
+                f"{shortened}\n"
+                "```"
+            )
+    return "\n".join(section).strip()
+def _extract_excel_vba(path: Path, max_chars: int = 12000) -> str:
+    parts: List[str] = []
     try:
         from oletools.olevba import VBA_Parser  # type: ignore
         vba = VBA_Parser(str(path))
-        if vba.detect_vba_macros():
-            parts.append("\n## VBA macros")
-            for (_, _, vba_filename, vba_code) in vba.extract_all_macros():
-                if not vba_code:
-                    continue
-                snippet = vba_code[: max_chars // 3]
-                parts.append(
-                    f"\n### Module: {vba_filename}\n"
-                    + "```vba\n"
-                    + snippet
-                    + "\n```"
-                )
-        vba.close()
+        try:
+            if vba.detect_vba_macros():
+                parts.append("\n## VBA macros")
+                for (_, _, vba_filename, vba_code) in vba.extract_all_macros():
+                    if not vba_code:
+                        continue
+                    snippet = vba_code[: max_chars // 3]
+                    parts.append(
+                        f"\n### Module: {vba_filename}\n"
+                        "```vba\n"
+                        f"{snippet}\n"
+                        "```"
+                    )
+        finally:
+            vba.close()
     except Exception:
         parts.append("\n[No VBA macros extracted or oletools not installed.]")
-    text = "\n".join(parts).strip()
-    return text[:max_chars]
+    return "\n".join(parts).strip()[:max_chars]
+def _pbix_extract_layout(zf: zipfile.ZipFile, names: List[str], max_visuals_per_page: int = 10) -> str:
+    if "Report/Layout" not in names:
+        return ""
+    try:
+        raw = zf.read("Report/Layout")
+    except KeyError:
+        return ""
+    try:
+        text = raw.decode("utf-16le")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", errors="ignore")
+    try:
+        data = json.loads(text)
+    except Exception:
+        return ""
+    parts: List[str] = ["## Report pages and visuals (best effort)"]
+    for section in data.get("sections", []):
+        title = section.get("displayName") or section.get("name") or "<untitled page>"
+        visuals = section.get("visualContainers") or []
+        parts.append(f"\n### Page: {title}")
+        parts.append(f"- Visual count: {len(visuals)}")
+        for vc in visuals[:max_visuals_per_page]:
+            cfg_raw = vc.get("config")
+            vis_title = None
+            vis_type = None
+            try:
+                cfg = json.loads(cfg_raw) if isinstance(cfg_raw, str) else cfg_raw
+            except Exception:
+                cfg = None
+            if cfg:
+                single = cfg.get("singleVisual") or cfg.get("singleVisualGroup") or {}
+                title_obj = single.get("title") or {}
+                vis_title = title_obj.get("text") or single.get("displayName")
+                vis_type = single.get("visualType") or single.get("groupType")
+            parts.append(f"  - {vis_title or '<untitled visual>'} ({vis_type or 'visual'})")
+        if len(visuals) > max_visuals_per_page:
+            parts.append(f"  - ... {len(visuals) - max_visuals_per_page} more visuals not listed")
+    return "\n".join(parts).strip()
+def _pbix_extract_queries(
+    zf: zipfile.ZipFile,
+    names: List[str],
+    max_queries: int = 40,
+) -> str:
+    queries: List[str] = []
+    for name in names:
+        if not name.lower().endswith(".dax"):
+            continue
+        try:
+            raw = zf.read(name)
+            try:
+                text = raw.decode("utf-16le")
+            except UnicodeDecodeError:
+                text = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        stripped = text.strip()
+        if not stripped:
+            continue
+        header = f"-- {name}"
+        queries.append(f"{header}\n{stripped}")
+        if len(queries) >= max_queries:
+            break
+    if len(queries) < max_queries:
+        for name in names:
+            lname = name.lower()
+            if not any(token in lname for token in ("datamashup", "section", "report", ".json", ".xml", ".txt")):
+                continue
+            try:
+                raw = zf.read(name)
+                try:
+                    text = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    text = raw.decode("utf-16le", errors="ignore")
+            except Exception:
+                continue
+            lowered = text.lower()
+            if "select " not in lowered or " from " not in lowered:
+                continue
+            for line in text.splitlines():
+                lline = line.lower()
+                if "select " in lline and " from " in lline:
+                    stripped = line.strip()
+                    if stripped:
+                        queries.append(stripped)
+                        if len(queries) >= max_queries:
+                            break
+            if len(queries) >= max_queries:
+                break
+    if not queries:
+        return ""
+    parts: List[str] = ["## DAX / SQL queries (best effort)"]
+    for idx, q in enumerate(queries, start=1):
+        shortened = textwrap.shorten(q, width=800, placeholder=" …")
+        parts.append(
+            f"\n### Query {idx}\n"
+            "```sql\n"
+            f"{shortened}\n"
+            "```"
+        )
+    return "\n".join(parts).strip()
 def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
     suffix = path.suffix.lower()
     if suffix != ".pbix":
         raise ValueError(f"Not a PBIX file: {path}")
-    base = f"# Power BI PBIX: {path.name}\n"
-    details = "[PBIX extraction not yet implemented – plug in pbi-tools or your internal extractor here.]"
-    text = base + details
+    logger.info("PBIX: starting context extraction for %s", path)
+    header = f"# Power BI PBIX: {path.name}\n"
+    parts: List[str] = []
+    extract_root = _run_pbitools_extract(path)
+    if extract_root is not None:
+        logger.info("PBIX: using pbi-tools extract at %s", extract_root)
+        model_section = _pbitools_model_summary(extract_root)
+        if model_section:
+            logger.info("PBIX: pbi-tools model summary length = %d chars", len(model_section))
+            parts.append(model_section)
+        else:
+            logger.info("PBIX: pbi-tools returned no model summary.")
+        layout_section = _pbitools_layout_summary(extract_root)
+        if layout_section:
+            logger.info("PBIX: pbi-tools layout summary length = %d chars", len(layout_section))
+            parts.append(layout_section)
+        else:
+            logger.info("PBIX: pbi-tools returned no layout summary.")
+    else:
+        logger.warning("PBIX: pbi-tools extract unavailable; falling back to raw ZIP heuristics.")
+    if not parts:
+        try:
+            logger.info("PBIX: opening file as zip for heuristic extraction.")
+            with zipfile.ZipFile(path) as zf:
+                names = zf.namelist()
+                logger.info("PBIX: zip contains %d members", len(names))
+
+                model_section = _pbix_extract_model(zf, names)
+                if model_section:
+                    logger.info("PBIX: heuristic model summary length = %d chars", len(model_section))
+                    parts.append(model_section)
+                sql_section = _pbix_extract_sql_like(zf, names)
+                if sql_section:
+                    logger.info("PBIX: heuristic SQL-like summary length = %d chars", len(sql_section))
+                    parts.append(sql_section)
+                if not parts:
+                    if any(n.endswith("DataModel") or n.lower().endswith("datamodel") for n in names):
+                        msg = (
+                            "[PBIX contains a binary DataModel that this helper does not decode. "
+                            "Install pbi-tools and ensure it is on PATH (or set PBI_TOOLS_EXE) "
+                            "to extract the Tabular model as JSON.]"
+                        )
+                        logger.warning("PBIX: %s", msg)
+                        parts.append(msg)
+                    else:
+                        msg = (
+                            "[No SQL-like queries or model details were detected in this PBIX. "
+                            "Queries may be stored in mashups or require a dedicated PBIX parser.]"
+                        )
+                        logger.warning("PBIX: %s", msg)
+                        parts.append(msg)
+        except Exception as exc:
+            logger.exception("PBIX: zip-based extraction failed: %s", exc)
+            parts.append(
+                f"[PBIX extraction failed: {type(exc).__name__}: {exc}. "
+                "To get full SQL and model details, ensure pbi-tools is installed and reachable.]"
+            )
+    text = header + "\n".join(parts)
+    logger.info("PBIX: final extracted context length = %d chars", len(text))
+    logger.info("PBIX: preview of extracted context:\n%s", text[:500])
     return text[:max_chars]
+def _pbix_extract_model(zf: zipfile.ZipFile, names: List[str]) -> str:
+    candidates = [
+        n for n in names
+        if "datamodel" in n.lower() and n.lower().endswith(".json")
+    ]
+    if not candidates:
+        return ""
+    parts: List[str] = ["## Data model (best effort)"]
+    for name in candidates:
+        try:
+            raw = zf.read(name)
+            text = raw.decode("utf-8", errors="ignore")
+            data = json.loads(text)
+        except Exception:
+            continue
+        model = data.get("model") or data
+        tables = model.get("tables") or []
+        for tbl in tables:
+            tname = tbl.get("name")
+            if not tname:
+                continue
+            cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
+            measures = tbl.get("measures", []) or []
+            parts.append(f"\n### Table: {tname}")
+            if cols:
+                col_list = ", ".join(cols[:20])
+                if len(cols) > 20:
+                    col_list += " …"
+                parts.append(f"- Columns: {col_list}")
+            if measures:
+                parts.append("- Measures:")
+                for m in measures[:20]:
+                    mname = m.get("name") or "<unnamed>"
+                    expr = (m.get("expression") or "").strip()
+                    if expr:
+                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
+                        parts.append(f"  - {mname}: {expr_short}")
+                    else:
+                        parts.append(f"  - {mname}")
+    return "\n".join(parts).strip() if len(parts) > 1 else ""
+def _pbix_extract_sql_like(zf: zipfile.ZipFile, names: List[str]) -> str:
+    queries: List[str] = []
+    for name in names:
+        lname = name.lower()
+        if not any(token in lname for token in (
+            "datamashup", "section", "report", ".json", ".xml", ".txt"
+        )):
+            continue
+        try:
+            raw = zf.read(name)
+            text = raw.decode("utf-8", errors="ignore")
+        except Exception:
+            continue
+        lowered = text.lower()
+        if "select " not in lowered or " from " not in lowered:
+            continue
+        for line in text.splitlines():
+            lline = line.lower()
+            if "select " in lline and " from " in lline:
+                stripped = line.strip()
+                if stripped:
+                    queries.append(stripped)
+                    if len(queries) >= 40:
+                        break
+        if len(queries) >= 40:
+            break
+    if not queries:
+        return ""
+    parts: List[str] = ["## SQL-like queries (best effort)"]
+    for idx, q in enumerate(queries, start=1):
+        shortened = textwrap.shorten(q, width=800, placeholder=" …")
+        parts.append(
+            f"\n### Query {idx}\n"
+            "```sql\n"
+            f"{shortened}\n"
+            "```"
+        )
+    return "\n".join(parts).strip()

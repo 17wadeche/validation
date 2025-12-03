@@ -2,6 +2,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 ROOT = Path(__file__).parent
 sys.path.append(str(ROOT / "src"))
 from validation_agent import ValidationAgent  # type: ignore  # noqa: E402

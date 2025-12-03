@@ -22,6 +22,11 @@ from src.validation_agent.storage import (
 )
 from src.validation_agent.workbook_loader import extract_excel_context, extract_pbix_context
 import tempfile
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 app = Flask(__name__)
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:

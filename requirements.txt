@@ -1,14 +1,5 @@
-# Core dependencies for the Medtronic validation agent UI/CLI
 Flask>=2.3,<3.0
-
-# Optional: DOCX export and template-preserving replacements
 python-docx>=0.8.11
-
-# Optional: DOCX-to-HTML rendering (not required when previews are disabled)
 mammoth>=1.5.0
-
-# Optional: PDF ingestion for templates/examples
 pypdf>=3.17.0
-
-# Optional: One-click Windows executable packaging
 pyinstaller>=6.0.0
