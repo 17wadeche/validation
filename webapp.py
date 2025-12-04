@@ -801,7 +801,7 @@ TEMPLATE = """
         <div class=\"spinner\" role=\"status\" aria-label=\"Loading\"></div>
         <div>
           <div style=\"font-weight: 700; color: var(--text);\">Working on your answers…</div>
-          <div style=\"color: var(--muted); font-size: 14px;\">This may take a few seconds.</div>
+          <div style=\"color: var(--muted); font-size: 14px;\">This may take a few minutes.</div>
         </div>
       </div>
     </div>
@@ -1064,7 +1064,17 @@ TEMPLATE = """
             <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
           </div>
           <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
-          <div id="friendlyView" class="output" style="margin-top: 10px; display: none;"></div>
+          <div
+            id="friendlyView"
+            class="output"
+            style="
+              margin-top: 10px;
+              display: none;
+              white-space: normal;        /* override pre-wrap from .output */
+              max-height: 60vh;           /* or whatever height you like */
+              overflow-y: auto;           /* scroll instead of visually cutting off */
+            "
+          ></div>
           <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of answers. Use Copy all to grab the current JSON.</p>
         </div>
       </div>
