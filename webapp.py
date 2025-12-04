@@ -1060,19 +1060,36 @@ TEMPLATE = """
           <div class="tagline"><span class="pill">Generated Answers</span><span>Copy</span></div>
           <div class="actions" style="margin-top: 8px; gap: 8px;">
             <div class="pill" id="viewToggleJson" style="cursor: pointer;">JSON view</div>
-            <div class="pill" id="viewToggleFriendly" style="cursor: pointer; background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.3);">Easy view</div>
+            <div class="pill" id="viewToggleFriendly" style="cursor: pointer;">Easy view</div>
+            <div class="pill" id="viewToggleMarkdown" style="cursor: pointer; background: rgba(34,197,94,0.1); color: #22c55e; border-color: rgba(34,197,94,0.3);">
+              Markdown view
+            </div>
             <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
           </div>
-          <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
+          <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap; display:none;">
+            {{ draft }}
+          </div>
           <div
             id="friendlyView"
             class="output"
             style="
               margin-top: 10px;
               display: none;
-              white-space: normal;        /* override pre-wrap from .output */
-              max-height: 60vh;           /* or whatever height you like */
-              overflow-y: auto;           /* scroll instead of visually cutting off */
+              white-space: normal;
+              max-height: 60vh;
+              overflow-y: auto;
+            "
+          ></div>
+          <div
+            id="markdownView"
+            class="output"
+            style="
+              margin-top: 10px;
+              display: block;
+              white-space: pre-wrap;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+              max-height: 60vh;
+              overflow-y: auto;
             "
           ></div>
           <p style="margin: 10px 0 0; color: #475569;">Toggle between the raw JSON and a simplified list of answers. Use Copy all to grab the current JSON.</p>
@@ -1378,8 +1395,10 @@ TEMPLATE = """
     const rawDraft = {{ draft|tojson if draft else 'null' }};
     const jsonView = document.getElementById('jsonView');
     const friendlyView = document.getElementById('friendlyView');
+    const markdownView = document.getElementById('markdownView');
     const toggleJson = document.getElementById('viewToggleJson');
     const toggleFriendly = document.getElementById('viewToggleFriendly');
+    const toggleMarkdown = document.getElementById('viewToggleMarkdown');
     const copyAll = document.getElementById('copyAll');
     function rawDraftText() {
       if (rawDraft === null || rawDraft === undefined) return '';
@@ -1409,8 +1428,15 @@ TEMPLATE = """
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
     }
+    function escapeMarkdown(str) {
+      return String(str)
+        .replace(/\|/g, '\\|')
+        .replace(/\r?\n/g, '<br>');
+    }
     function formatValue(value, depth = 0) {
-      if (value === null || value === undefined || value === '') return '<span style="color:#94a3b8;">(empty)</span>';
+      if (value === null || value === undefined || value === '') {
+        return '<span style="color:#94a3b8;">(empty)</span>';
+      }
       if (Array.isArray(value)) {
         const items = value
           .map((entry) => `<li>${formatValue(entry, depth + 1)}</li>`)
@@ -1419,7 +1445,10 @@ TEMPLATE = """
       }
       if (typeof value === 'object') {
         const entries = Object.entries(value)
-          .map(([k, v]) => `<li><strong>${escapeHtml(k)}</strong>: ${formatValue(v, depth + 1)}</li>`)
+          .map(
+            ([k, v]) =>
+              `<li><strong>${escapeHtml(k)}</strong>: ${formatValue(v, depth + 1)}</li>`
+          )
           .join('');
         return `<ul>${entries}</ul>`;
       }
@@ -1429,7 +1458,8 @@ TEMPLATE = """
       if (!friendlyView) return;
       const parsed = parseDraft();
       if (!parsed) {
-        friendlyView.textContent = 'Could not parse JSON. Use the JSON view to copy manually.';
+        friendlyView.textContent =
+          'Could not parse JSON. Use the JSON view to copy manually.';
         return;
       }
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
@@ -1438,45 +1468,140 @@ TEMPLATE = """
         const list = answers
           .map((item) => {
             const placeholder = item.placeholder || item.question;
-            const value = item.replacement !== undefined ? item.replacement : item.answer;
+            const value =
+              item.replacement !== undefined ? item.replacement : item.answer;
             if (!placeholder) return '';
-            return `<li><strong>${escapeHtml(placeholder)}</strong> → ${formatValue(value)}</li>`;
+            return `<li><strong>${escapeHtml(
+              placeholder
+            )}</strong> → ${formatValue(value)}</li>`;
           })
           .filter(Boolean)
           .join('');
         if (list) {
-          sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
+          sections.push(
+            `<div style="margin-bottom: 10px;">
+              <div class="pill" style="margin-bottom:6px;">Answers</div>
+              <ul>${list}</ul>
+            </div>`
+          );
         }
       }
       friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
     }
-    if (toggleJson && toggleFriendly && jsonView && friendlyView) {
+    function renderMarkdown() {
+      if (!markdownView) return;
+      const parsed = parseDraft();
+      const raw = rawDraftText();
+      if (!parsed) {
+        markdownView.textContent = '```json\n' + raw + '\n```';
+        return;
+      }
+      let md = '';
+      const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+      if (answers.length) {
+        md += '### Answers\n\n';
+        md += '| Placeholder / Question | Value |\n';
+        md += '| --- | --- |\n';
+        for (const item of answers) {
+          const key = item.placeholder || item.question;
+          const val =
+            item.replacement !== undefined ? item.replacement : item.answer;
+          if (!key) continue;
+          let strVal = '';
+          if (val === null || val === undefined) {
+            strVal = '(empty)';
+          } else if (typeof val === 'object') {
+            strVal = JSON.stringify(val, null, 2);
+          } else {
+            strVal = String(val);
+          }
+          md += `| ${escapeMarkdown(key)} | ${escapeMarkdown(strVal)} |\n`;
+        }
+        md += '\n';
+      }
+      const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+      if (questions.length) {
+        md += '### Open questions\n\n';
+        for (const q of questions) {
+          md += `- ${escapeMarkdown(q)}\n`;
+        }
+        md += '\n';
+      }
+      md += '---\n\n';
+      md += '```json\n' + raw + '\n```';
+      markdownView.textContent = md;
+    }
+    function setActiveToggle(active) {
+      const toggles = [toggleJson, toggleFriendly, toggleMarkdown];
+      toggles.forEach((el) => {
+        if (!el) return;
+        if (el === active) {
+          el.style.background = 'rgba(34,197,94,0.1)';
+          el.style.borderColor = 'rgba(34,197,94,0.3)';
+          el.style.color = '#15803d';
+        } else {
+          el.style.background = 'rgba(148,163,184,0.12)';
+          el.style.borderColor = 'rgba(148,163,184,0.4)';
+          el.style.color = '#475569';
+        }
+      });
+    }
+    if (
+      toggleJson &&
+      toggleFriendly &&
+      toggleMarkdown &&
+      jsonView &&
+      friendlyView &&
+      markdownView
+    ) {
+      jsonView.textContent = rawDraftText();
+      renderFriendly();
+      renderMarkdown();
+      jsonView.style.display = 'none';
+      friendlyView.style.display = 'none';
+      markdownView.style.display = 'block';
+      setActiveToggle(toggleMarkdown);
       toggleJson.addEventListener('click', () => {
         jsonView.style.display = 'block';
         friendlyView.style.display = 'none';
-        toggleJson.style.background = 'rgba(34,211,238,0.1)';
-        toggleJson.style.borderColor = 'rgba(34,211,238,0.3)';
-        toggleFriendly.style.background = 'rgba(34,197,94,0.05)';
-        toggleFriendly.style.borderColor = 'rgba(34,197,94,0.2)';
+        markdownView.style.display = 'none';
+        setActiveToggle(toggleJson);
       });
       toggleFriendly.addEventListener('click', () => {
         renderFriendly();
         jsonView.style.display = 'none';
         friendlyView.style.display = 'block';
-        toggleFriendly.style.background = 'rgba(34,197,94,0.1)';
-        toggleFriendly.style.borderColor = 'rgba(34,197,94,0.3)';
-        toggleJson.style.background = 'rgba(34,211,238,0.05)';
-        toggleJson.style.borderColor = 'rgba(34,211,238,0.2)';
+        markdownView.style.display = 'none';
+        setActiveToggle(toggleFriendly);
       });
-      renderFriendly();
-      jsonView.textContent = rawDraftText();
-      jsonView.style.display = 'none';
-      friendlyView.style.display = 'block';
+      toggleMarkdown.addEventListener('click', () => {
+        renderMarkdown();
+        jsonView.style.display = 'none';
+        friendlyView.style.display = 'none';
+        markdownView.style.display = 'block';
+        setActiveToggle(toggleMarkdown);
+      });
     }
     if (copyAll && rawDraft !== null) {
       copyAll.addEventListener('click', async () => {
+        let textToCopy = '';
+        const jsonViewVisible =
+          jsonView && jsonView.style.display === 'block';
+        const friendlyViewVisible =
+          friendlyView && friendlyView.style.display === 'block';
+        const markdownViewVisible =
+          markdownView && markdownView.style.display === 'block';
+        if (markdownViewVisible && markdownView) {
+          textToCopy = markdownView.textContent || '';
+        } else if (friendlyViewVisible && friendlyView) {
+          textToCopy = friendlyView.innerText || friendlyView.textContent || '';
+        } else if (jsonViewVisible && jsonView) {
+          textToCopy = jsonView.textContent || rawDraftText();
+        } else {
+          textToCopy = rawDraftText();
+        }
         try {
-          await navigator.clipboard.writeText(rawDraftText());
+          await navigator.clipboard.writeText(textToCopy);
           copyAll.textContent = 'Copied!';
           setTimeout(() => (copyAll.textContent = 'Copy all'), 1200);
         } catch (e) {
