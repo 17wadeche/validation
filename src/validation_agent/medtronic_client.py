@@ -1,18 +1,12 @@
 from __future__ import annotations
-
 import json
 import logging
 from dataclasses import dataclass, field
 from urllib import error, parse, request
 from typing import List
-
 logger = logging.getLogger(__name__)
-
-
 class MedtronicGPTError(Exception):
     """Raised when the MedtronicGPT service cannot return a completion."""
-
-
 @dataclass
 class MedtronicGPTClient:
     subscription_key: str
@@ -25,13 +19,11 @@ class MedtronicGPTClient:
     temperature: float | None = 0.0
     max_completion_tokens: int | None = None
     last_refresh: bool = field(default=False, init=False)
-
     DEFAULT_BASE_URL = "https://api.gpt.medtronic.com"
     DEFAULT_API_VERSION = "3.0"
     DEFAULT_PATH_TEMPLATE = "/models/{model}"
     DEFAULT_TEMPERATURE = 0.0
     DEFAULT_MAX_COMPLETION_TOKENS = 32768
-
     @staticmethod
     def _infer_max_completion_tokens_for_model(model: str) -> int | None:
         if not model:
