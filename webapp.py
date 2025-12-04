@@ -10,6 +10,7 @@ from src.validation_agent.prompt_builder import (
     build_prompt,
     build_update_prompt,
     extract_placeholders,
+    build_design_update_prompt,
 )
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
@@ -251,6 +252,7 @@ def index():
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
     release_type: str = "initial"
+    design_text: str = ""
     selected_template_name: str = stored_inputs.templates[0].name if stored_inputs.templates else ""
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -544,12 +546,34 @@ def index():
                 except MedtronicGPTError as exc:
                     error = str(exc)
             if not error:
-                prompt = build_prompt(template_text or "", examples, code_context, plan_context=plan_text)
+                prompt = build_prompt(
+                    template_text or "",
+                    examples,
+                    code_context,
+                    plan_context=plan_text,
+                    release_type=release_type,
+                )
                 try:
                     draft = client.generate_completion(prompt, model=model)
                     draft_questions = _extract_questions_from_json(draft)
                 except MedtronicGPTError as exc:
                     error = str(exc)
+            if not error and draft:
+                try:
+                    design_update_prompt = build_design_update_prompt(
+                        template_text or "",
+                        examples,
+                        code_context,
+                        prior_json=draft,
+                        plan_context=plan_text,
+                        release_type=release_type,
+                    )
+                    refined = client.generate_completion(design_update_prompt, model=model)
+                    draft = refined
+                    draft_questions = _extract_questions_from_json(draft)
+                except MedtronicGPTError as exc:
+                    if not error:
+                        error = f"Design refinement failed: {exc}"
         if action in {"chat", "answers"} and not draft and draft_json_from_form.strip():
             draft = draft_json_from_form
             draft_questions = _extract_questions_from_json(draft)
@@ -632,6 +656,7 @@ def index():
         missing_placeholders=missing_placeholders,
         release_type=release_type,
         selected_template_name=selected_template_name,
+        design_text=design_text,
     )
 TEMPLATE = """
 <!doctype html>
@@ -937,9 +962,33 @@ TEMPLATE = """
                 <label for=\"api_version\" class=\"muted\" style=\"font-weight:600;\">API version</label>
                 <input class=\"input\" id=\"api_version\" type=\"text\" name=\"api_version\" placeholder=\"API version\" value=\"{{ defaults.api_version }}\">
               </div>
-              <div class=\"field\">
-                <label for=\"model\" class=\"muted\" style=\"font-weight:600;\">Model</label>
-                <input class=\"input\" id=\"model\" type=\"text\" name=\"model\" placeholder=\"Model (gpt-41)\" value=\"{{ defaults.model }}\">
+              <div class="field">
+                <label for="model" class="muted" style="font-weight:600;">Model</label>
+                <select class="input" id="model" name="model">
+                  {% set current_model = defaults.model or 'gpt-41' %}
+                  <option value="gpt-5" {% if current_model == 'gpt-5' %}selected{% endif %}>gpt-5</option>
+                  <option value="gpt-5-mini" {% if current_model == 'gpt-5-mini' %}selected{% endif %}>gpt-5-mini</option>
+                  <option value="gpt-5-nano" {% if current_model == 'gpt-5-nano' %}selected{% endif %}>gpt-5-nano</option>
+                  <option value="gpt-41" {% if current_model == 'gpt-41' %}selected{% endif %}>gpt-41</option>
+                  <option value="gpt-41-mini" {% if current_model == 'gpt-41-mini' %}selected{% endif %}>gpt-41-mini</option>
+                  <option value="gpt-41-nano" {% if current_model == 'gpt-41-nano' %}selected{% endif %}>gpt-41-nano</option>
+                  <option value="o4-mini" {% if current_model == 'o4-mini' %}selected{% endif %}>o4-mini</option>
+                  <option value="o3" {% if current_model == 'o3' %}selected{% endif %}>o3</option>
+                  <option value="o3-mini" {% if current_model == 'o3-mini' %}selected{% endif %}>o3-mini</option>
+                  <option value="gpt-4o-mini" {% if current_model == 'gpt-4o-mini' %}selected{% endif %}>gpt-4o-mini</option>
+                  <option value="gpt-4o" {% if current_model == 'gpt-4o' %}selected{% endif %}>gpt-4o</option>
+                  <option value="anthropic.claude-3-5-sonnet-20241022-v2:0" {% if current_model == 'anthropic.claude-3-5-sonnet-20241022-v2:0' %}selected{% endif %}>anthropic.claude-3-5-sonnet-20241022-v2:0</option>
+                  <option value="anthropic.claude-3-7-sonnet-20250219-v1:0" {% if current_model == 'anthropic.claude-3-7-sonnet-20250219-v1:0' %}selected{% endif %}>anthropic.claude-3-7-sonnet-20250219-v1:0</option>
+                  <option value="claude-sonnet-3-7" {% if current_model == 'claude-sonnet-3-7' %}selected{% endif %}>claude-sonnet-3-7</option>
+                  <option value="anthropic.claude-sonnet-4-20250514-v1:0" {% if current_model == 'anthropic.claude-sonnet-4-20250514-v1:0' %}selected{% endif %}>anthropic.claude-sonnet-4-20250514-v1:0</option>
+                  <option value="claude-sonnet-4" {% if current_model == 'claude-sonnet-4' %}selected{% endif %}>claude-sonnet-4</option>
+                  <option value="deepseek.r1-v1:0" {% if current_model == 'deepseek.r1-v1:0' %}selected{% endif %}>deepseek.r1-v1:0</option>
+                  <option value="deepseek-r1" {% if current_model == 'deepseek-r1' %}selected{% endif %}>deepseek-r1</option>
+                  <option value="pixtral-large-2502" {% if current_model == 'pixtral-large-2502' %}selected{% endif %}>pixtral-large-2502</option>
+                  <option value="mistral.pixtral-large-2502-v1:0" {% if current_model == 'mistral.pixtral-large-2502-v1:0' %}selected{% endif %}>mistral.pixtral-large-2502-v1:0</option>
+                  <option value="meta.llama4-maverick-17b-instruct-v1:0" {% if current_model == 'meta.llama4-maverick-17b-instruct-v1:0' %}selected{% endif %}>meta.llama4-maverick-17b-instruct-v1:0</option>
+                  <option value="llama-maverick-17b-instruct" {% if current_model == 'llama-maverick-17b-instruct' %}selected{% endif %}>llama-maverick-17b-instruct</option>
+                </select>
               </div>
               <div class=\"field\">
                 <label for=\"subscription_key\" class=\"muted\" style=\"font-weight:600;\">Subscription key</label>
@@ -979,7 +1028,7 @@ TEMPLATE = """
             <input type="hidden" name="plan_text" value="{{ plan_text }}">
             <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
             <input type="hidden" name="use_model" value="on">
-            <input type="hidden" name="model" value="{{ defaults.model }}">
+            <input type="hidden" name="model" id="answersModel" value="{{ defaults.model }}">
             <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
             <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
             <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
@@ -1053,7 +1102,7 @@ TEMPLATE = """
         <form method="post" class="chat" id="chatForm">
           <input type="hidden" name="action" value="chat">
           <input type="hidden" name="use_model" value="on">
-          <input type="hidden" name="model" value="{{ defaults.model }}">
+          <input type="hidden" name="model" id="answersModel" value="{{ defaults.model }}">
           <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
           <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
           <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
@@ -1111,6 +1160,9 @@ TEMPLATE = """
     const codeFileList = document.getElementById('codeFileList');
     const uncheckAllExamplesButton = document.getElementById('uncheckAllExamples');
     const scrollBottomBtn = document.getElementById('scrollBottomBtn');
+    const modelSelect = document.getElementById('model');
+    const answersModelInput = document.getElementById('answersModel');
+    const chatModelInput = document.getElementById('chatModel');
     function submitWithAction(actionValue) {
       if (!mainForm) return;
       const hidden = document.createElement('input');
@@ -1140,6 +1192,15 @@ TEMPLATE = """
         syncReleaseInputs(value);
       });
     });
+    if (modelSelect) {
+      const syncModelValue = () => {
+        const value = modelSelect.value;
+        if (answersModelInput) answersModelInput.value = value;
+        if (chatModelInput) chatModelInput.value = value;
+      };
+      syncModelValue();
+      modelSelect.addEventListener('change', syncModelValue);
+    }
     if (scrollBottomBtn) {
       scrollBottomBtn.addEventListener('click', () => {
         const doc = document.documentElement;

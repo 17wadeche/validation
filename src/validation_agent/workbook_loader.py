@@ -63,78 +63,161 @@ def _run_pbitools_extract(pbix_path: Path) -> Path | None:
         return None
     logger.info("pbi-tools extract succeeded, output directory: %s", out_dir)
     return out_dir
-def _pbitools_model_summary(extract_root: Path, max_tables: int = 40, max_relationships: int = 80) -> str:
-    schema_path = extract_root / "Model" / "DataModelSchema.json"
-    if not schema_path.exists():
-        alt = extract_root / "Model" / "database.json"
-        if alt.exists():
-            schema_path = alt
+def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
+    candidates = [
+        extract_root / "Model" / "DataModelSchema.json",
+        extract_root / "Model" / "database.json",
+    ]
+    schema_path: Path | None = None
+    for p in candidates:
+        if p.exists():
+            schema_path = p
+            break
+    if not schema_path:
+        logger.warning(
+            "pbi-tools: no model schema found at %s (tried DataModelSchema.json, database.json)",
+            extract_root / "Model",
+        )
+        return ""
     logger.info("pbi-tools: looking for model schema at %s", schema_path)
-    if not schema_path.exists():
-        logger.warning("pbi-tools: DataModelSchema/database.json not found, skipping model summary.")
-        return ""
     try:
-        data = json.loads(schema_path.read_text(encoding="utf-8"))
+        raw = schema_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
     except Exception as exc:
-        logger.exception("pbi-tools: failed to parse model json: %s", exc)
+        logger.exception("pbi-tools: failed to parse %s: %s", schema_path, exc)
         return ""
-    model = data.get("model") or data
+    if "database" in data:
+        model = (data.get("database") or {}).get("model") or {}
+    else:
+        model = data.get("model") or data
+    def _walk(obj):
+        if isinstance(obj, dict):
+            for v in obj.values():
+                yield from _walk(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                yield from _walk(item)
+    def _find_tables_fallback(m) -> list[dict]:
+        best: list[dict] = []
+        for node in _walk(m):
+            if not isinstance(node, list) or not node:
+                continue
+            if not all(isinstance(x, dict) for x in node):
+                continue
+            if any("name" in t for t in node) and any(
+                any(k in t for k in ("columns", "measures", "partitions", "hierarchies"))
+                for t in node
+            ):
+                best = node
+                break
+        return best
+    def _find_relationships_fallback(m) -> list[dict]:
+        for node in _walk(m):
+            if not isinstance(node, list) or not node or not isinstance(node[0], dict):
+                continue
+            if any(
+                (
+                    ("fromTable" in r or "fromTableName" in r)
+                    and ("toTable" in r or "toTableName" in r)
+                )
+                for r in node
+            ):
+                return node
+        return []
     tables = model.get("tables") or []
     relationships = model.get("relationships") or []
-    logger.info("pbi-tools: model has %d tables, %d relationships", len(tables), len(relationships))
+    if not tables:
+        fallback_tables = _find_tables_fallback(model)
+        if fallback_tables:
+            tables = fallback_tables
+            logger.info(
+                "pbi-tools: recovered %d tables via heuristic search",
+                len(tables),
+            )
+    if not relationships:
+        fallback_rels = _find_relationships_fallback(model)
+        if fallback_rels:
+            relationships = fallback_rels
+            logger.info(
+                "pbi-tools: recovered %d relationships via heuristic search",
+                len(relationships),
+            )
+    logger.info(
+        "pbi-tools: model has %d tables, %d relationships (after heuristics)",
+        len(tables),
+        len(relationships),
+    )
     if not tables and not relationships:
         return ""
     parts: List[str] = ["## Data model (from pbi-tools)"]
-    for idx, tbl in enumerate(tables, start=1):
-        if idx > max_tables:
-            parts.append(f"\n... {len(tables) - max_tables} more tables not listed")
-            break
-        tname = tbl.get("name") or "<unnamed table>"
-        cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
-        measures = tbl.get("measures") or []
-        logger.info(
-            "pbi-tools: table %d: name=%r, cols=%d, measures=%d",
-            idx,
-            tname,
-            len(cols),
-            len(measures),
-        )
-        parts.append(f"\n### Table: {tname}")
-        if cols:
-            col_list = ", ".join(cols[:25])
-            if len(cols) > 25:
-                col_list += " …"
-            parts.append(f"- Columns: {col_list}")
-        if measures:
-            parts.append("- Measures:")
-            for m in measures[:25]:
-                mname = m.get("name") or "<unnamed measure>"
-                expr = (m.get("expression") or "").strip()
-                if expr:
-                    expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
-                    parts.append(f"  - {mname}: {expr_short}")
-                else:
-                    parts.append(f"  - {mname}")
+    if tables:
+        def _sort_key(tbl: dict) -> tuple[int, str]:
+            name = (tbl.get("name") or "").lower()
+            if name in {"f_center", "f_coding"}:
+                return (0, name)
+            if name.startswith("f_"):
+                return (1, name)
+            if name.startswith("dim_") or name.startswith("d_"):
+                return (2, name)
+            return (3, name)
+        tables_sorted = sorted(tables, key=_sort_key)
+        for idx, tbl in enumerate(tables_sorted, start=1):
+            if idx > max_tables:
+                parts.append(f"\n... {len(tables_sorted) - max_tables} more tables not listed")
+                break
+            tname = tbl.get("name") or "<unnamed table>"
+            cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
+            measures = tbl.get("measures") or []
+            calc_cols = [
+                c for c in (tbl.get("columns") or [])
+                if (c.get("expression") or "").strip()
+            ]
+            logger.info(
+                "pbi-tools: table %d: name=%r, cols=%d, measures=%d, calc_cols=%d",
+                idx,
+                tname,
+                len(cols),
+                len(measures),
+                len(calc_cols),
+            )
+            parts.append(f"\n### Table: {tname}")
+            if cols:
+                col_list = ", ".join(cols[:25])
+                if len(cols) > 25:
+                    col_list += " …"
+                parts.append(f"- Columns: {col_list}")
+            if measures:
+                parts.append("- Measures:")
+                for m in measures[:25]:
+                    mname = m.get("name") or "<unnamed measure>"
+                    expr = (m.get("expression") or "").strip()
+                    if expr:
+                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
+                        parts.append(f"  - {mname}: {expr_short}")
+                    else:
+                        parts.append(f"  - {mname}")
+            if calc_cols:
+                parts.append("- Calculated columns:")
+                for c in calc_cols[:25]:
+                    cname = c.get("name") or "<unnamed column>"
+                    expr = (c.get("expression") or "").strip()
+                    if expr:
+                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
+                        parts.append(f"  - {cname}: {expr_short}")
+                    else:
+                        parts.append(f"  - {cname}")
     if relationships:
         parts.append("\n## Relationships")
-        for rel in relationships[:max_relationships]:
-            from_table = rel.get("fromTable") or rel.get("fromTableName") or "?"
-            to_table = rel.get("toTable") or rel.get("toTableName") or "?"
+        for rel in relationships:
+            from_tbl = rel.get("fromTable") or rel.get("fromTableName") or "?"
             from_col = rel.get("fromColumn") or rel.get("fromColumnName") or "?"
+            to_tbl = rel.get("toTable") or rel.get("toTableName") or "?"
             to_col = rel.get("toColumn") or rel.get("toColumnName") or "?"
             is_active = rel.get("isActive")
-            cross_filter = (
-                rel.get("crossFilteringBehavior")
-                or rel.get("crossFilterDirection")
-                or ""
-            )
+            active_flag = "" if is_active in (None, True) else " (inactive)"
             parts.append(
-                f"- {from_table}[{from_col}] → {to_table}[{to_col}]"
-                f"{' (active)' if is_active else ''}"
-                f"{f', cross-filter: {cross_filter}' if cross_filter else ''}"
+                f"- {from_tbl}[{from_col}] → {to_tbl}[{to_col}]{active_flag}"
             )
-        if len(relationships) > max_relationships:
-            parts.append(f"- … {len(relationships) - max_relationships} more relationships not listed")
     return "\n".join(parts).strip()
 def _pbitools_layout_summary(extract_root: Path, max_visuals_per_page: int = 10) -> str:
     layout_path = extract_root / "Report" / "Layout"
@@ -433,7 +516,6 @@ def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
     extract_root = _run_pbitools_extract(path)
     if extract_root is not None:
         logger.info("PBIX: using pbi-tools extract at %s", extract_root)
-
         model_section = _pbitools_model_summary(extract_root)
         if model_section:
             logger.info("PBIX: pbi-tools model summary length = %d chars", len(model_section))

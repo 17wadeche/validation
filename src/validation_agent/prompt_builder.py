@@ -153,6 +153,97 @@ def build_prompt(
         "- Never fabricate person names or signatures; leave them blank or ask a question when not provided."
     )
     return "\n\n".join(prompt_sections).strip() + "\n"
+def build_design_update_prompt(
+    template: str,
+    examples: Iterable[Example],
+    code_context: str,
+    prior_json: str,
+    plan_context: str | None = None,
+    release_type: str = "initial",
+) -> str:
+    """
+    Second-pass refinement that focuses ONLY on design-related placeholders/answers.
+    - Input: template, QA examples, code/PBIX/Excel context, and prior JSON mappings.
+    - Output: UPDATED JSON with the same overall structure, but richer content
+      for design/UX-related fields.
+    """
+    release_label = (
+        "initial release"
+        if release_type == "initial"
+        else "update / change request"
+    )
+    sections: list[str] = [
+        "You are an AI assistant updating Medtronic validation mappings.",
+        "In this pass, your ONLY goal is to enrich and refine DESIGN-related content.",
+        "",
+        "Treat the existing JSON as the source of truth for non-design fields.",
+        "You must keep all non-design placeholders and answers unchanged unless there is a clear contradiction.",
+        "",
+        "Design-related content includes:",
+        "- Sections, placeholders, or answers about UI/UX, layout, pages, navigation, visuals, dashboards, reports, charts.",
+        "- Anything under headings like 'Design', 'Tool Design', 'Report Layout', 'User Interface', 'Screen Design', etc.",
+        "",
+        "You MUST ground all design commentary in QUALITY ASSURANCE documentation and actual context:",
+        "- The validation template text.",
+        "- The provided example validation documents (these are QA docs).",
+        "- The PBIX/Excel/code context (data model, report pages, visuals, etc.).",
+        "",
+        "Do NOT invent features, pages, visuals, or behaviours that are not supported by this context.",
+        "If you cannot support a design claim from the QA docs or code/report context, either:",
+        "- Leave the design placeholder short and generic, or",
+        "- Add / keep a clarifying question instead of guessing.",
+    ]
+    sections.append(
+        "\n## Release context\n"
+        f"This is an {release_label}. "
+        "If this is an update, you may refine the design description to mention relevant changes, "
+        "but only when they are clearly implied by the context."
+    )
+    sections.append("\n## Template\n" + template.strip())
+    formatted_examples = format_examples(examples)
+    if formatted_examples:
+        sections.append(
+            "\n## Quality assurance examples\n"
+            "Treat these as QA reference documents for tone, structure, and what must be documented.\n"
+            "Use them to constrain and justify your design descriptions.\n"
+            + formatted_examples
+        )
+    if plan_context and plan_context.strip():
+        sections.append(
+            "\n## Planning JSON\n"
+            "Use this only to understand which sections exist and how they relate; "
+            "do NOT change its structure.\n"
+            + plan_context.strip()
+        )
+    sections.append(
+        "\n## Program code / PBIX / Excel context\n"
+        "Use this to anchor discussion of report pages, visuals, and data model.\n"
+        "Focus especially on sections like 'Report pages and visuals' and 'Data model'.\n"
+        + code_context.strip()
+    )
+    sections.append(
+        "\n## Prior JSON mapping\n"
+        "You MUST start from this JSON. Your job is to produce a NEW JSON that:\n"
+        "- Preserves the same top-level structure and keys (placeholders, answers, questions, coverage, etc.).\n"
+        "- Keeps all non-design answers unchanged.\n"
+        "- Enriches design-related answers with more detailed, QA-grounded descriptions.\n"
+        "- You may also add clarifying questions ONLY where design details are genuinely missing.\n"
+        + prior_json.strip()
+    )
+    sections.append(
+        "\n## Response rules\n"
+        "- Output VALID JSON only (no code fences).\n"
+        "- Maintain the same overall JSON schema: placeholders (map), answers (list), questions (list), coverage, etc.\n"
+        "- Only modify design-related placeholders/answers/questions:\n"
+        "  - Look for tokens or text mentioning: design, layout, UI, UX, screen, dashboard, report page, visualization, chart, slicer, navigation, user workflow.\n"
+        "  - For those fields, expand into richer, multi-sentence descriptions grounded in the QA docs and code/report context.\n"
+        "- For all other fields, copy the existing values exactly.\n"
+        "- If you are not sure about a specific design detail, either:\n"
+        "  - Keep the existing shorter answer, or\n"
+        "  - Add/retain a clarifying question (do NOT invent specifics).\n"
+        "- Never fabricate person names, signatures, or regulatory identifiers.\n"
+    )
+    return "\n\n".join(sections).strip() + "\n"
 def build_update_prompt(
     template: str,
     examples: Iterable[Example],

@@ -6,6 +6,7 @@ from .prompt_builder import (
     build_planning_prompt,
     build_prompt,
     build_update_prompt,
+    build_design_update_prompt,
     format_examples,
     load_examples,
 )
@@ -15,6 +16,7 @@ __all__ = [
     "build_planning_prompt",
     "build_prompt",
     "build_update_prompt",
+    "build_design_update_prompt", 
     "format_examples",
     "load_code_context",
     "load_examples",
