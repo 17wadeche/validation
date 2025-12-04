@@ -90,6 +90,7 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
         model = (data.get("database") or {}).get("model") or {}
     else:
         model = data.get("model") or data
+    logger.info("pbi-tools: model top-level keys: %s", list(model.keys()))
     def _walk(obj):
         if isinstance(obj, dict):
             for v in obj.values():
@@ -98,7 +99,6 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
             for item in obj:
                 yield from _walk(item)
     def _find_tables_fallback(m) -> list[dict]:
-        best: list[dict] = []
         for node in _walk(m):
             if not isinstance(node, list) or not node:
                 continue
@@ -108,9 +108,36 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
                 any(k in t for k in ("columns", "measures", "partitions", "hierarchies"))
                 for t in node
             ):
-                best = node
-                break
-        return best
+                logger.info(
+                    "pbi-tools: recovered %d tables via list-of-dicts fallback",
+                    len(node),
+                )
+                return node
+        for node in _walk(m):
+            if not isinstance(node, dict) or not node:
+                continue
+            values = [v for v in node.values() if isinstance(v, dict)]
+            if not values:
+                continue
+            if not any(
+                any(k in v for k in ("columns", "measures", "partitions", "hierarchies"))
+                for v in values
+            ):
+                continue
+            tables: list[dict] = []
+            for name, tbl in node.items():
+                if not isinstance(tbl, dict):
+                    continue
+                t = dict(tbl)
+                t.setdefault("name", str(name))
+                tables.append(t)
+            if tables:
+                logger.info(
+                    "pbi-tools: recovered %d tables via dict-of-dicts fallback",
+                    len(tables),
+                )
+                return tables
+        return []
     def _find_relationships_fallback(m) -> list[dict]:
         for node in _walk(m):
             if not isinstance(node, list) or not node or not isinstance(node[0], dict):
@@ -126,6 +153,16 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
         return []
     tables = model.get("tables") or []
     relationships = model.get("relationships") or []
+    if isinstance(tables, dict):
+        logger.info(
+            "pbi-tools: 'tables' is a dict with %d entries; converting to list",
+            len(tables),
+        )
+        tables = [
+            dict({"name": name, **(tbl or {})})
+            for name, tbl in tables.items()
+            if isinstance(tbl, dict)
+        ]
     if not tables:
         fallback_tables = _find_tables_fallback(model)
         if fallback_tables:
@@ -166,7 +203,7 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
                 parts.append(f"\n... {len(tables_sorted) - max_tables} more tables not listed")
                 break
             tname = tbl.get("name") or "<unnamed table>"
-            cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
+            cols = [c.get("name") for c in (tbl.get("columns") or []) if c.get("name")]
             measures = tbl.get("measures") or []
             calc_cols = [
                 c for c in (tbl.get("columns") or [])
