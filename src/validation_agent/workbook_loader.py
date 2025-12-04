@@ -64,10 +64,19 @@ def _run_pbitools_extract(pbix_path: Path) -> Path | None:
     logger.info("pbi-tools extract succeeded, output directory: %s", out_dir)
     return out_dir
 def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
-    candidates = [
-        extract_root / "Model" / "DataModelSchema.json",
-        extract_root / "Model" / "database.json",
-    ]
+    model_dir = extract_root / "Model"
+    candidates: list[Path] = []
+    for name in ("DataModelSchema.json", "DataModelSchema"):
+        p = model_dir / name
+        if p.exists():
+            candidates.append(p)
+    if model_dir.exists():
+        for p in model_dir.iterdir():
+            if "datamodelschema" in p.name.lower() and p not in candidates:
+                candidates.append(p)
+    db_path = model_dir / "database.json"
+    if db_path.exists() and db_path not in candidates:
+        candidates.append(db_path)
     schema_path: Path | None = None
     for p in candidates:
         if p.exists():
@@ -75,8 +84,8 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
             break
     if not schema_path:
         logger.warning(
-            "pbi-tools: no model schema found at %s (tried DataModelSchema.json, database.json)",
-            extract_root / "Model",
+            "pbi-tools: no model schema found under %s (tried DataModelSchema*, database.json)",
+            model_dir,
         )
         return ""
     logger.info("pbi-tools: looking for model schema at %s", schema_path)
@@ -90,7 +99,106 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
         model = (data.get("database") or {}).get("model") or {}
     else:
         model = data.get("model") or data
-    logger.info("pbi-tools: model top-level keys: %s", list(model.keys()))
+    def _extract_embedded_model_from_annotations(m: dict) -> dict | None:
+        anns = m.get("annotations") or []
+        if not isinstance(anns, list):
+            return None
+        for ann in anns:
+            if not isinstance(ann, dict):
+                continue
+            val = ann.get("value")
+            if not isinstance(val, str):
+                continue
+            if '"tables"' not in val and '"model"' not in val:
+                continue
+            try:
+                inner = json.loads(val)
+            except Exception:
+                continue
+            if not isinstance(inner, dict):
+                continue
+            if "database" in inner:
+                inner_model = (inner.get("database") or {}).get("model") or {}
+            else:
+                inner_model = inner.get("model") or inner
+            if isinstance(inner_model, dict) and (
+                inner_model.get("tables") or inner_model.get("relationships")
+            ):
+                logger.info(
+                    "pbi-tools: found embedded model in annotations; keys=%r",
+                    sorted(inner_model.keys()),
+                )
+                return inner_model
+        return None
+    if not (model.get("tables") or []):
+        embedded = _extract_embedded_model_from_annotations(model)
+        if embedded:
+            model = embedded
+    logger.info("pbi-tools: model top-level keys: %r", list(model.keys()))
+    tables = model.get("tables") or []
+    relationships = model.get("relationships") or []
+    if not tables:
+        tables_dir = model_dir / "tables"
+        synthesised: list[dict] = []
+        if tables_dir.exists():
+            logger.info("pbi-tools: no tables in JSON; scanning %s for table folders", tables_dir)
+            for tdir in sorted(tables_dir.iterdir()):
+                if not tdir.is_dir():
+                    continue
+                tname = tdir.name
+                columns: list[dict] = []
+                measures: list[dict] = []
+                table_meta = tdir / "table.json"
+                if table_meta.exists():
+                    try:
+                        meta_raw = table_meta.read_text(encoding="utf-8")
+                        meta = json.loads(meta_raw)
+                        for col in meta.get("columns", []) or []:
+                            cname = col.get("name")
+                            if cname:
+                                columns.append({"name": cname})
+                    except Exception as exc:
+                        logger.debug("pbi-tools: failed to parse %s: %s", table_meta, exc)
+                cols_dir = tdir / "columns"
+                if cols_dir.exists():
+                    for col_file in cols_dir.iterdir():
+                        if col_file.suffix.lower() not in (".json", ".dax"):
+                            continue
+                        cname = col_file.stem
+                        if cname and not any(c["name"] == cname for c in columns):
+                            columns.append({"name": cname})
+                measures_dir = tdir / "measures"
+                if measures_dir.exists():
+                    for j in measures_dir.glob("*.json"):
+                        mname = j.stem
+                        expr = ""
+                        dax_file = measures_dir / f"{mname}.dax"
+                        if dax_file.exists():
+                            try:
+                                expr = dax_file.read_text(encoding="utf-8", errors="ignore").strip()
+                            except Exception:
+                                expr = ""
+                        if not expr:
+                            try:
+                                m_meta = json.loads(j.read_text(encoding="utf-8"))
+                                expr = (m_meta.get("expression") or "").strip()
+                            except Exception:
+                                expr = ""
+                        measures.append({"name": mname, "expression": expr})
+                if columns or measures:
+                    synthesised.append(
+                        {
+                            "name": tname,
+                            "columns": columns,
+                            "measures": measures,
+                        }
+                    )
+            if synthesised:
+                logger.info(
+                    "pbi-tools: synthesised %d tables from Model/tables folder",
+                    len(synthesised),
+                )
+                tables = synthesised
     def _walk(obj):
         if isinstance(obj, dict):
             for v in obj.values():
@@ -99,6 +207,7 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
             for item in obj:
                 yield from _walk(item)
     def _find_tables_fallback(m) -> list[dict]:
+        best: list[dict] = []
         for node in _walk(m):
             if not isinstance(node, list) or not node:
                 continue
@@ -108,61 +217,20 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
                 any(k in t for k in ("columns", "measures", "partitions", "hierarchies"))
                 for t in node
             ):
-                logger.info(
-                    "pbi-tools: recovered %d tables via list-of-dicts fallback",
-                    len(node),
-                )
-                return node
-        for node in _walk(m):
-            if not isinstance(node, dict) or not node:
-                continue
-            values = [v for v in node.values() if isinstance(v, dict)]
-            if not values:
-                continue
-            if not any(
-                any(k in v for k in ("columns", "measures", "partitions", "hierarchies"))
-                for v in values
-            ):
-                continue
-            tables: list[dict] = []
-            for name, tbl in node.items():
-                if not isinstance(tbl, dict):
-                    continue
-                t = dict(tbl)
-                t.setdefault("name", str(name))
-                tables.append(t)
-            if tables:
-                logger.info(
-                    "pbi-tools: recovered %d tables via dict-of-dicts fallback",
-                    len(tables),
-                )
-                return tables
-        return []
+                best = node
+                break
+        return best
     def _find_relationships_fallback(m) -> list[dict]:
         for node in _walk(m):
             if not isinstance(node, list) or not node or not isinstance(node[0], dict):
                 continue
             if any(
-                (
-                    ("fromTable" in r or "fromTableName" in r)
-                    and ("toTable" in r or "toTableName" in r)
-                )
+                (("fromTable" in r or "fromTableName" in r)
+                 and ("toTable" in r or "toTableName" in r))
                 for r in node
             ):
                 return node
         return []
-    tables = model.get("tables") or []
-    relationships = model.get("relationships") or []
-    if isinstance(tables, dict):
-        logger.info(
-            "pbi-tools: 'tables' is a dict with %d entries; converting to list",
-            len(tables),
-        )
-        tables = [
-            dict({"name": name, **(tbl or {})})
-            for name, tbl in tables.items()
-            if isinstance(tbl, dict)
-        ]
     if not tables:
         fallback_tables = _find_tables_fallback(model)
         if fallback_tables:
@@ -198,20 +266,17 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
                 return (2, name)
             return (3, name)
         tables_sorted = sorted(tables, key=_sort_key)
-        for idx, tbl in enumerate(tables_sorted, start=1):
-            if idx > max_tables:
-                parts.append(f"\n... {len(tables_sorted) - max_tables} more tables not listed")
-                break
+        for tbl in tables_sorted:
             tname = tbl.get("name") or "<unnamed table>"
-            cols = [c.get("name") for c in (tbl.get("columns") or []) if c.get("name")]
+            cols = [c.get("name") for c in tbl.get("columns", []) if c.get("name")]
             measures = tbl.get("measures") or []
             calc_cols = [
-                c for c in (tbl.get("columns") or [])
+                c
+                for c in (tbl.get("columns") or [])
                 if (c.get("expression") or "").strip()
             ]
             logger.info(
-                "pbi-tools: table %d: name=%r, cols=%d, measures=%d, calc_cols=%d",
-                idx,
+                "pbi-tools: table %r, cols=%d, measures=%d, calc_cols=%d",
                 tname,
                 len(cols),
                 len(measures),
@@ -219,28 +284,24 @@ def _pbitools_model_summary(extract_root: Path, max_tables: int = 40) -> str:
             )
             parts.append(f"\n### Table: {tname}")
             if cols:
-                col_list = ", ".join(cols[:25])
-                if len(cols) > 25:
-                    col_list += " …"
+                col_list = ", ".join(cols)   # ALL columns
                 parts.append(f"- Columns: {col_list}")
             if measures:
                 parts.append("- Measures:")
-                for m in measures[:25]:
+                for m in measures:           # ALL measures
                     mname = m.get("name") or "<unnamed measure>"
                     expr = (m.get("expression") or "").strip()
                     if expr:
-                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
-                        parts.append(f"  - {mname}: {expr_short}")
+                        parts.append(f"  - {mname}: {expr}")   # full DAX
                     else:
                         parts.append(f"  - {mname}")
             if calc_cols:
                 parts.append("- Calculated columns:")
-                for c in calc_cols[:25]:
+                for c in calc_cols:          # ALL calc cols
                     cname = c.get("name") or "<unnamed column>"
                     expr = (c.get("expression") or "").strip()
                     if expr:
-                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
-                        parts.append(f"  - {cname}: {expr_short}")
+                        parts.append(f"  - {cname}: {expr}")
                     else:
                         parts.append(f"  - {cname}")
     if relationships:
@@ -310,6 +371,13 @@ def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
     sql_section = _extract_excel_sql_queries(path)
     if sql_section:
         parts.append(sql_section)
+    com_section = _extract_excel_com_details(
+        path,
+        max_queries=25,
+        max_chars=max_chars // 2,
+    )
+    if com_section:
+        parts.append(com_section)
     vba_section = _extract_excel_vba(path, max_chars=max_chars)
     if vba_section:
         parts.append(vba_section)
@@ -317,6 +385,30 @@ def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
     return text[:max_chars]
 def _extract_excel_structure(path: Path) -> str:
     parts: List[str] = []
+    suffix = path.suffix.lower()
+    if suffix == ".xlsb":
+        try:
+            from pyxlsb import open_workbook  # type: ignore
+        except Exception:
+            return (
+                "[Workbook structure for .xlsb not available: "
+                "install 'pyxlsb' to list sheets and basic structure.]"
+            )
+        try:
+            with open_workbook(str(path)) as wb:
+                parts.append("## Sheets")
+                for sheet in wb.sheets:
+                    try:
+                        name = getattr(sheet, "name", None) or str(sheet)
+                    except Exception:
+                        name = str(sheet)
+                    parts.append(f"- {name}")
+        except Exception as exc:
+            return (
+                f"[Could not read .xlsb workbook structure via pyxlsb: "
+                f"{type(exc).__name__}: {exc}]"
+            )
+        return "\n".join(parts).strip()
     try:
         from openpyxl import load_workbook  # type: ignore
         wb = load_workbook(filename=str(path), data_only=False, keep_links=True)
@@ -338,6 +430,7 @@ def _extract_excel_structure(path: Path) -> str:
 def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
     queries: List[str] = []
     connections: List[str] = []
+    suffix = path.suffix.lower()
     try:
         with zipfile.ZipFile(path) as zf:
             names = set(zf.namelist())
@@ -374,10 +467,32 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
                                 queries.append(txt)
                 except Exception:
                     continue
+            m_queries: List[str] = []
+            for name in names:
+                if not (name.startswith("xl/queries/") and name.lower().endswith(".xml")):
+                    continue
+                try:
+                    xml_bytes = zf.read(name)
+                    root = ET.fromstring(xml_bytes)
+                except Exception:
+                    continue
+                for node in root.iter():
+                    tag = node.tag.lower()
+                    if tag.endswith("m"):
+                        txt = (node.text or "").strip()
+                        if txt:
+                            m_queries.append(txt)
+                            if len(m_queries) >= max_queries:
+                                break
+                if len(m_queries) >= max_queries:
+                    break
             if not queries:
+                exts = (".xml", ".rels", ".txt")
+                if suffix == ".xlsb":
+                    exts = exts + (".bin",)
                 for name in names:
                     lname = name.lower()
-                    if not lname.endswith((".xml", ".rels", ".txt")):
+                    if not lname.endswith(exts):
                         continue
                     try:
                         raw = zf.read(name)
@@ -386,7 +501,7 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
                     try:
                         text = raw.decode("utf-8", errors="ignore")
                     except Exception:
-                        continue
+                        text = raw.decode("latin-1", errors="ignore")
                     lowered = text.lower()
                     if "select " not in lowered or " from " not in lowered:
                         continue
@@ -402,15 +517,18 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
                         break
     except Exception:
         return ""
-    if not queries and not connections:
+    if not queries and not connections and not m_queries:
         return ""
-    section: List[str] = ["\n## SQL queries / connections"]
+    section: List[str] = ["\n## SQL / Power Query / connections"]
     if connections:
         section.append("\n### Connections")
         for idx, conn in enumerate(connections, start=1):
-            section.append(f"- Connection {idx}: {textwrap.shorten(conn, width=200, placeholder='...')}")
+            section.append(
+                f"- Connection {idx}: "
+                f"{textwrap.shorten(conn, width=200, placeholder='...')}"
+            )
     if queries:
-        section.append("\n### Queries")
+        section.append("\n### SQL Queries")
         for idx, q in enumerate(queries, start=1):
             shortened = textwrap.shorten(q, width=800, placeholder=" ...")
             section.append(
@@ -419,7 +537,283 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
                 f"{shortened}\n"
                 "```"
             )
+    if m_queries:
+        section.append("\n### Power Query (M) scripts")
+        for idx, m in enumerate(m_queries, start=1):
+            shortened = textwrap.shorten(m, width=800, placeholder=" ...")
+            section.append(
+                f"\n#### M Query {idx}\n"
+                "```m\n"
+                f"{shortened}\n"
+                "```"
+            )
     return "\n".join(section).strip()
+def _extract_excel_com_details(
+    path: Path,
+    max_queries: int = 25,
+    max_chars: int = 8000,
+) -> str:
+    try:
+        import win32com.client  # type: ignore
+    except Exception:
+        logger.info("COM Excel not available (win32com import failed); skipping COM extraction.")
+        return ""
+    try:
+        excel = win32com.client.DispatchEx("Excel.Application")  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.info("COM Excel DispatchEx failed: %s; skipping COM extraction.", exc)
+        return ""
+    try:
+        excel.Visible = False
+        excel.DisplayAlerts = False
+        try:
+            wb = excel.Workbooks.Open(str(path), ReadOnly=True)
+        except Exception as exc:
+            logger.exception("COM Excel failed to open workbook %s: %s", path, exc)
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+            return ""
+        try:
+            parts: List[str] = ["\n## COM-based workbook inspection"]
+            try:
+                sheet_names: list[str] = []
+                for sh in wb.Worksheets:
+                    try:
+                        sheet_names.append(str(sh.Name))
+                    except Exception:
+                        continue
+                if sheet_names:
+                    parts.append("\n### Sheets (COM)")
+                    for nm in sheet_names:
+                        parts.append(f"- {nm}")
+            except Exception:
+                logger.debug("COM: failed to enumerate sheets", exc_info=True)
+            try:
+                if wb.Names.Count:
+                    parts.append("\n### Named ranges (COM)")
+                    count = 0
+                    for name_obj in wb.Names:
+                        try:
+                            nm = str(name_obj.Name)
+                            refers = str(name_obj.RefersTo)
+                        except Exception:
+                            continue
+                        parts.append(f"- {nm}: {refers}")
+                        count += 1
+                        if count >= 200:
+                            break
+            except Exception:
+                logger.debug("COM: failed to enumerate named ranges", exc_info=True)
+            try:
+                table_lines: list[str] = []
+                for sh in wb.Worksheets:
+                    try:
+                        lo_collection = getattr(sh, "ListObjects", None)
+                    except Exception:
+                        lo_collection = None
+                    if not lo_collection:
+                        continue
+                    for lo in lo_collection:
+                        try:
+                            tname = str(lo.Name)
+                        except Exception:
+                            tname = "<unnamed>"
+                        try:
+                            rng = lo.Range
+                            addr = str(rng.Address(False, False))
+                        except Exception:
+                            addr = "?"
+                        try:
+                            sheet_name = str(sh.Name)
+                        except Exception:
+                            sheet_name = "?"
+                        conn_name = ""
+                        try:
+                            qt = getattr(lo, "QueryTable", None)
+                            if qt is not None:
+                                try:
+                                    wb_conn = getattr(qt, "WorkbookConnection", None)
+                                    if wb_conn is not None:
+                                        conn_name = str(getattr(wb_conn, "Name", "") or "")
+                                except Exception:
+                                    conn_name = str(getattr(qt, "Connection", "") or "")
+                        except Exception:
+                            pass
+                        line = f"- {tname} (sheet: {sheet_name}, range: {addr}"
+                        if conn_name:
+                            line += f", connection: {conn_name}"
+                        line += ")"
+                        table_lines.append(line)
+                if table_lines:
+                    parts.append("\n### Tables / ListObjects (COM)")
+                    parts.extend(table_lines[:200])
+            except Exception:
+                logger.debug("COM: failed to enumerate ListObjects", exc_info=True)
+            try:
+                conn_lines: list[str] = []
+                for conn in wb.Connections:
+                    try:
+                        cname = str(conn.Name)
+                    except Exception:
+                        cname = "<unnamed>"
+                    conn_str = ""
+                    cmd_text = ""
+                    try:
+                        if hasattr(conn, "OLEDBConnection"):
+                            oledb = conn.OLEDBConnection
+                            conn_str = str(getattr(oledb, "Connection", "") or "")
+                            cmd_text = str(getattr(oledb, "CommandText", "") or "")
+                        elif hasattr(conn, "ODBCConnection"):
+                            odbc = conn.ODBCConnection
+                            conn_str = str(getattr(odbc, "Connection", "") or "")
+                            cmd_text = str(getattr(odbc, "CommandText", "") or "")
+                    except Exception:
+                        pass
+                    if not conn_str:
+                        try:
+                            conn_str = str(getattr(conn, "Description", "") or "")
+                        except Exception:
+                            pass
+                    conn_str_short = (
+                        textwrap.shorten(conn_str, width=250, placeholder=" ...")
+                        if conn_str
+                        else ""
+                    )
+                    cmd_text_short = (
+                        textwrap.shorten(str(cmd_text), width=500, placeholder=" ...")
+                        if cmd_text
+                        else ""
+                    )
+                    line = f"- {cname}"
+                    if conn_str_short:
+                        line += f" | connection: {conn_str_short}"
+                    if cmd_text_short:
+                        line += f" | command: {cmd_text_short}"
+                    conn_lines.append(line)
+
+                if conn_lines:
+                    parts.append("\n### Connections (COM)")
+                    parts.extend(conn_lines[:max_queries])
+            except Exception:
+                logger.debug("COM: failed to enumerate Connections", exc_info=True)
+            try:
+                qt_lines: list[str] = []
+                for sh in wb.Worksheets:
+                    try:
+                        qts = getattr(sh, "QueryTables", None)
+                    except Exception:
+                        qts = None
+                    if not qts:
+                        continue
+                    for qt in qts:
+                        try:
+                            qname = str(qt.Name)
+                        except Exception:
+                            qname = "<unnamed>"
+                        try:
+                            cmd = qt.CommandText
+                        except Exception:
+                            cmd = ""
+                        try:
+                            conn = qt.Connection
+                        except Exception:
+                            conn = ""
+                        cmd_short = (
+                            textwrap.shorten(str(cmd), width=500, placeholder=" ...")
+                            if cmd
+                            else ""
+                        )
+                        conn_short = (
+                            textwrap.shorten(str(conn), width=250, placeholder=" ...")
+                            if conn
+                            else ""
+                        )
+                        line = f"- {qname} (sheet: {sh.Name})"
+                        if conn_short:
+                            line += f" | connection: {conn_short}"
+                        if cmd_short:
+                            line += f" | command: {cmd_short}"
+                        qt_lines.append(line)
+                if qt_lines:
+                    parts.append("\n### QueryTables (COM)")
+                    parts.extend(qt_lines[:max_queries])
+            except Exception:
+                logger.debug("COM: failed to enumerate QueryTables", exc_info=True)
+            try:
+                m_parts: list[str] = []
+                queries_col = getattr(wb, "Queries", None)
+                if queries_col is not None:
+                    count = 0
+                    for q in queries_col:
+                        try:
+                            qname = str(q.Name)
+                            formula = str(q.Formula)
+                        except Exception:
+                            continue
+                        formula_short = textwrap.shorten(formula, width=800, placeholder=" ...")
+                        m_parts.append(
+                            f"\n#### M Query (COM): {qname}\n"
+                            "```m\n"
+                            f"{formula_short}\n"
+                            "```"
+                        )
+                        count += 1
+                        if count >= max_queries:
+                            break
+                if m_parts:
+                    parts.append("\n### Power Query (M) via COM")
+                    parts.extend(m_parts)
+            except Exception:
+                logger.debug("COM: failed to enumerate Workbook.Queries", exc_info=True)
+            try:
+                pivot_lines: list[str] = []
+                for sh in wb.Worksheets:
+                    try:
+                        pivots = getattr(sh, "PivotTables", None)
+                    except Exception:
+                        pivots = None
+                    if not pivots:
+                        continue
+                    for pt in pivots:
+                        try:
+                            pname = str(pt.Name)
+                        except Exception:
+                            pname = "<unnamed>"
+                        try:
+                            src_name = str(getattr(pt, "SourceData", "") or "")
+                        except Exception:
+                            src_name = ""
+                        src_short = (
+                            textwrap.shorten(src_name, width=300, placeholder=" ...")
+                            if src_name
+                            else ""
+                        )
+                        line = f"- {pname} (sheet: {sh.Name}"
+                        if src_short:
+                            line += f", source: {src_short}"
+                        line += ")"
+                        pivot_lines.append(line)
+                if pivot_lines:
+                    parts.append("\n### PivotTables (COM)")
+                    parts.extend(pivot_lines[:200])
+            except Exception:
+                logger.debug("COM: failed to enumerate PivotTables", exc_info=True)
+            text = "\n".join(parts).strip()
+            return text[:max_chars]
+        finally:
+            try:
+                wb.Close(SaveChanges=False)
+            except Exception:
+                pass
+            try:
+                excel.Quit()
+            except Exception:
+                pass
+    except Exception:
+        logger.exception("COM-based Excel extraction failed for %s", path)
+        return ""
 def _extract_excel_vba(path: Path, max_chars: int = 12000) -> str:
     parts: List[str] = []
     try:
@@ -543,7 +937,7 @@ def _pbix_extract_queries(
             "```"
         )
     return "\n".join(parts).strip()
-def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
+def extract_pbix_context(path: Path, max_chars: int = 0) -> str:
     suffix = path.suffix.lower()
     if suffix != ".pbix":
         raise ValueError(f"Not a PBIX file: {path}")
@@ -568,7 +962,8 @@ def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
             logger.info("PBIX: zip contains %d members", len(names))
-            if not any("Data model" in p for p in parts):
+            has_tables = any("### Table:" in p for p in parts)
+            if not has_tables:
                 model_section = _pbix_extract_model(zf, names)
                 if model_section:
                     logger.info("PBIX: heuristic model summary length = %d chars", len(model_section))
@@ -602,7 +997,7 @@ def extract_pbix_context(path: Path, max_chars: int = 12000) -> str:
     text = header + "\n".join(parts)
     logger.info("PBIX: final extracted context length = %d chars", len(text))
     logger.info("PBIX: preview of extracted context:\n%s", text[:500])
-    return text[:max_chars]
+    return text if not max_chars else text[:max_chars]
 def _pbix_extract_model(zf: zipfile.ZipFile, names: List[str]) -> str:
     candidates = [
         n for n in names
@@ -634,12 +1029,11 @@ def _pbix_extract_model(zf: zipfile.ZipFile, names: List[str]) -> str:
                 parts.append(f"- Columns: {col_list}")
             if measures:
                 parts.append("- Measures:")
-                for m in measures[:20]:
+                for m in measures:   # ALL measures
                     mname = m.get("name") or "<unnamed>"
                     expr = (m.get("expression") or "").strip()
                     if expr:
-                        expr_short = textwrap.shorten(expr, width=200, placeholder=" …")
-                        parts.append(f"  - {mname}: {expr_short}")
+                        parts.append(f"  - {mname}: {expr}")   # full DAX
                     else:
                         parts.append(f"  - {mname}")
     return "\n".join(parts).strip() if len(parts) > 1 else ""
