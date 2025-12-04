@@ -360,7 +360,7 @@ def _pbitools_layout_summary(extract_root: Path, max_visuals_per_page: int = 10)
         if len(visuals) > max_visuals_per_page:
             parts.append(f"  - ... {len(visuals) - max_visuals_per_page} more visuals not listed")
     return "\n".join(parts).strip()
-def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
+def extract_excel_context(path: Path, max_chars: int = 0) -> str:
     suffix = path.suffix.lower()
     if suffix not in EXCEL_SUFFIXES:
         raise ValueError(f"Not an Excel workbook: {path}")
@@ -373,16 +373,16 @@ def extract_excel_context(path: Path, max_chars: int = 12000) -> str:
         parts.append(sql_section)
     com_section = _extract_excel_com_details(
         path,
-        max_queries=25,
-        max_chars=max_chars // 2,
+        max_queries=0,   # 0 == no per-section cap
+        max_chars=0,     # 0 == no truncation inside
     )
     if com_section:
         parts.append(com_section)
-    vba_section = _extract_excel_vba(path, max_chars=max_chars)
+    vba_section = _extract_excel_vba(path, max_chars=0)
     if vba_section:
         parts.append(vba_section)
     text = "\n".join(part for part in parts if part).strip()
-    return text[:max_chars]
+    return text if not max_chars else text[:max_chars]
 def _extract_excel_structure(path: Path) -> str:
     parts: List[str] = []
     suffix = path.suffix.lower()
@@ -427,7 +427,7 @@ def _extract_excel_structure(path: Path) -> str:
     except Exception:
         parts.append("\n[Could not read workbook structure via openpyxl.]")
     return "\n".join(parts).strip()
-def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
+def _extract_excel_sql_queries(path: Path, max_queries: int = 0) -> str:
     queries: List[str] = []
     connections: List[str] = []
     suffix = path.suffix.lower()
@@ -482,7 +482,7 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
                         txt = (node.text or "").strip()
                         if txt:
                             m_queries.append(txt)
-                            if len(m_queries) >= max_queries:
+                            if max_queries and len(m_queries) >= max_queries:
                                 break
                 if len(m_queries) >= max_queries:
                     break
@@ -530,28 +530,26 @@ def _extract_excel_sql_queries(path: Path, max_queries: int = 25) -> str:
     if queries:
         section.append("\n### SQL Queries")
         for idx, q in enumerate(queries, start=1):
-            shortened = textwrap.shorten(q, width=800, placeholder=" ...")
             section.append(
                 f"\n#### Query {idx}\n"
                 "```sql\n"
-                f"{shortened}\n"
+                f"{q}\n"
                 "```"
             )
     if m_queries:
         section.append("\n### Power Query (M) scripts")
         for idx, m in enumerate(m_queries, start=1):
-            shortened = textwrap.shorten(m, width=800, placeholder=" ...")
             section.append(
                 f"\n#### M Query {idx}\n"
                 "```m\n"
-                f"{shortened}\n"
+                f"{m}\n"
                 "```"
             )
     return "\n".join(section).strip()
 def _extract_excel_com_details(
     path: Path,
-    max_queries: int = 25,
-    max_chars: int = 8000,
+    max_queries: int = 0,   # 0 = no limit
+    max_chars: int = 0,      # 0 = no truncation
 ) -> str:
     try:
         import win32com.client  # type: ignore
@@ -601,9 +599,6 @@ def _extract_excel_com_details(
                         except Exception:
                             continue
                         parts.append(f"- {nm}: {refers}")
-                        count += 1
-                        if count >= 200:
-                            break
             except Exception:
                 logger.debug("COM: failed to enumerate named ranges", exc_info=True)
             try:
@@ -648,7 +643,7 @@ def _extract_excel_com_details(
                         table_lines.append(line)
                 if table_lines:
                     parts.append("\n### Tables / ListObjects (COM)")
-                    parts.extend(table_lines[:200])
+                    parts.extend(table_lines if not max_queries else table_lines[:max_queries])
             except Exception:
                 logger.debug("COM: failed to enumerate ListObjects", exc_info=True)
             try:
@@ -676,26 +671,17 @@ def _extract_excel_com_details(
                             conn_str = str(getattr(conn, "Description", "") or "")
                         except Exception:
                             pass
-                    conn_str_short = (
-                        textwrap.shorten(conn_str, width=250, placeholder=" ...")
-                        if conn_str
-                        else ""
-                    )
-                    cmd_text_short = (
-                        textwrap.shorten(str(cmd_text), width=500, placeholder=" ...")
-                        if cmd_text
-                        else ""
-                    )
+                    conn_str_short = conn_str
+                    cmd_text_short = str(cmd_text)
                     line = f"- {cname}"
                     if conn_str_short:
                         line += f" | connection: {conn_str_short}"
                     if cmd_text_short:
                         line += f" | command: {cmd_text_short}"
                     conn_lines.append(line)
-
                 if conn_lines:
                     parts.append("\n### Connections (COM)")
-                    parts.extend(conn_lines[:max_queries])
+                    parts.extend(conn_lines if not max_queries else conn_lines[:max_queries])
             except Exception:
                 logger.debug("COM: failed to enumerate Connections", exc_info=True)
             try:
@@ -720,16 +706,8 @@ def _extract_excel_com_details(
                             conn = qt.Connection
                         except Exception:
                             conn = ""
-                        cmd_short = (
-                            textwrap.shorten(str(cmd), width=500, placeholder=" ...")
-                            if cmd
-                            else ""
-                        )
-                        conn_short = (
-                            textwrap.shorten(str(conn), width=250, placeholder=" ...")
-                            if conn
-                            else ""
-                        )
+                        cmd_short = str(cmd)
+                        conn_short = str(conn)
                         line = f"- {qname} (sheet: {sh.Name})"
                         if conn_short:
                             line += f" | connection: {conn_short}"
@@ -738,7 +716,7 @@ def _extract_excel_com_details(
                         qt_lines.append(line)
                 if qt_lines:
                     parts.append("\n### QueryTables (COM)")
-                    parts.extend(qt_lines[:max_queries])
+                    parts.extend(qt_lines if not max_queries else qt_lines[:max_queries])
             except Exception:
                 logger.debug("COM: failed to enumerate QueryTables", exc_info=True)
             try:
@@ -752,7 +730,7 @@ def _extract_excel_com_details(
                             formula = str(q.Formula)
                         except Exception:
                             continue
-                        formula_short = textwrap.shorten(formula, width=800, placeholder=" ...")
+                        formula_short = formula
                         m_parts.append(
                             f"\n#### M Query (COM): {qname}\n"
                             "```m\n"
@@ -760,7 +738,7 @@ def _extract_excel_com_details(
                             "```"
                         )
                         count += 1
-                        if count >= max_queries:
+                        if max_queries and count >= max_queries:
                             break
                 if m_parts:
                     parts.append("\n### Power Query (M) via COM")
@@ -785,11 +763,7 @@ def _extract_excel_com_details(
                             src_name = str(getattr(pt, "SourceData", "") or "")
                         except Exception:
                             src_name = ""
-                        src_short = (
-                            textwrap.shorten(src_name, width=300, placeholder=" ...")
-                            if src_name
-                            else ""
-                        )
+                        src_short = src_name
                         line = f"- {pname} (sheet: {sh.Name}"
                         if src_short:
                             line += f", source: {src_short}"
@@ -797,11 +771,11 @@ def _extract_excel_com_details(
                         pivot_lines.append(line)
                 if pivot_lines:
                     parts.append("\n### PivotTables (COM)")
-                    parts.extend(pivot_lines[:200])
+                    parts.extend(pivot_lines if not max_queries else pivot_lines[:max_queries])
             except Exception:
                 logger.debug("COM: failed to enumerate PivotTables", exc_info=True)
             text = "\n".join(parts).strip()
-            return text[:max_chars]
+            return text if not max_chars else text[:max_chars]
         finally:
             try:
                 wb.Close(SaveChanges=False)
@@ -814,7 +788,7 @@ def _extract_excel_com_details(
     except Exception:
         logger.exception("COM-based Excel extraction failed for %s", path)
         return ""
-def _extract_excel_vba(path: Path, max_chars: int = 12000) -> str:
+def _extract_excel_vba(path: Path, max_chars: int = 0) -> str:
     parts: List[str] = []
     try:
         from oletools.olevba import VBA_Parser  # type: ignore
@@ -825,7 +799,7 @@ def _extract_excel_vba(path: Path, max_chars: int = 12000) -> str:
                 for (_, _, vba_filename, vba_code) in vba.extract_all_macros():
                     if not vba_code:
                         continue
-                    snippet = vba_code[: max_chars // 3]
+                    snippet = vba_code  # full module
                     parts.append(
                         f"\n### Module: {vba_filename}\n"
                         "```vba\n"
@@ -836,7 +810,8 @@ def _extract_excel_vba(path: Path, max_chars: int = 12000) -> str:
             vba.close()
     except Exception:
         parts.append("\n[No VBA macros extracted or oletools not installed.]")
-    return "\n".join(parts).strip()[:max_chars]
+    text = "\n".join(parts).strip()
+    return text if not max_chars else text[:max_chars]
 def _pbix_extract_layout(zf: zipfile.ZipFile, names: List[str], max_visuals_per_page: int = 10) -> str:
     if "Report/Layout" not in names:
         return ""
