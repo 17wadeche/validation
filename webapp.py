@@ -1473,6 +1473,7 @@ TEMPLATE = """
       jsonView.style.display = 'none';
       friendlyView.style.display = 'block';
     }
+    
     if (copyAll && rawDraft !== null) {
       copyAll.addEventListener('click', async () => {
         try {
