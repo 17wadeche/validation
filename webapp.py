@@ -1477,32 +1477,67 @@ TEMPLATE = """
       }
       friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
     }
+    function scalarToMarkdown(value) {
+      if (value === null || value === undefined || value === '') {
+        return '_(empty)_';
+      }
+      return String(value);
+    }
+    function valueToMarkdown(value, level) {
+      level = level || 0;
+      var indent = '  '.repeat(level);
+      if (value === null || value === undefined || value === '') {
+        return '_(empty)_';
+      }
+      if (Array.isArray(value)) {
+        if (!value.length) {
+          return '_(empty list)_';
+        }
+        if (value.every(function (v) {
+          return v && typeof v === 'object' && !Array.isArray(v);
+        })) {
+          return value
+            .map(function (obj) {
+              var lines = Object.entries(obj).map(function ([k, v]) {
+                return indent + '  - **' + k + '**: ' + scalarToMarkdown(v);
+              });
+              return indent + '-\\n' + lines.join('\\n');
+            })
+            .join('\\n');
+        }
+        return value
+          .map(function (v) {
+            return indent + '- ' + scalarToMarkdown(v);
+          })
+          .join('\\n');
+      }
+      if (typeof value === 'object') {
+        var parts = Object.entries(value).map(function ([k, v]) {
+          return indent + '- **' + k + '**: ' + scalarToMarkdown(v);
+        });
+        return parts.join('\\n');
+      }
+      return scalarToMarkdown(value);
+    }
     function buildMarkdownFromDraft(parsed) {
       if (!parsed) {
         return '# Answers\\n\\n_No data found in JSON._\\n';
       }
-      let md = '# Answers\\n\\n';
-      const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+      var md = '# Answers\\n\\n';
+      var answers = Array.isArray(parsed.answers) ? parsed.answers : [];
       if (answers.length) {
-        answers.forEach((item, idx) => {
-          const placeholder = item.placeholder || item.question || `Answer ${idx + 1}`;
-          const value =
+        answers.forEach(function (item, idx) {
+          var placeholder = item.placeholder || item.question || ('Answer ' + (idx + 1));
+          var value =
             item.replacement !== undefined
               ? item.replacement
               : item.answer !== undefined
               ? item.answer
               : '';
-          let valueString;
-          if (typeof value === 'string') {
-            valueString = value;
-          } else if (value === null || value === undefined) {
-            valueString = '_(empty)_';
-          } else {
-            valueString = '```json\\n' + JSON.stringify(value, null, 2) + '\\n```';
-          }
-          md += `## ${placeholder}\\n\\n`;
-          if (valueString.trim()) {
-            md += valueString + '\\n\\n';
+          var valueMarkdown = valueToMarkdown(value, 0);
+          md += '## ' + placeholder + '\\n\\n';
+          if (valueMarkdown && valueMarkdown.trim()) {
+            md += valueMarkdown + '\\n\\n';
           } else {
             md += '_(empty)_\\n\\n';
           }
@@ -1510,11 +1545,11 @@ TEMPLATE = """
       } else {
         md += '_No answers found in JSON._\\n\\n';
       }
-      const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
+      var questions = Array.isArray(parsed.questions) ? parsed.questions : [];
       if (questions.length) {
         md += '## Remaining questions\\n\\n';
-        questions.forEach((q) => {
-          md += `- ${q}\\n`;
+        questions.forEach(function (q) {
+          md += '- ' + q + '\\n';
         });
         md += '\\n';
       }
@@ -1526,8 +1561,10 @@ TEMPLATE = """
       const md = buildMarkdownFromDraft(parsed);
       markdownView.textContent = md;
     }
+    let activeView = 'friendly';  // default
     if (toggleJson && toggleFriendly && toggleMarkdown && jsonView && friendlyView && markdownView) {
       function setActiveView(view) {
+        activeView = view;
         jsonView.style.display = view === 'json' ? 'block' : 'none';
         friendlyView.style.display = view === 'friendly' ? 'block' : 'none';
         markdownView.style.display = view === 'markdown' ? 'block' : 'none';
@@ -1571,10 +1608,22 @@ TEMPLATE = """
       renderMarkdown(); // pre-generate so switching is instant
       setActiveView('friendly');
     }
-    if (copyAll && rawDraft !== null) {
+    if (copyAll) {
       copyAll.addEventListener('click', async () => {
+        let toCopy = '';
+        if (activeView === 'json') {
+          toCopy = jsonView ? jsonView.textContent : rawDraftText();
+        } else if (activeView === 'markdown') {
+          toCopy = markdownView ? markdownView.textContent : '';
+        } else if (activeView === 'friendly') {
+          toCopy = friendlyView
+            ? (friendlyView.innerText || friendlyView.textContent || '')
+            : '';
+        } else {
+          toCopy = rawDraftText();
+        }
         try {
-          await navigator.clipboard.writeText(rawDraftText());
+          await navigator.clipboard.writeText(toCopy);
           copyAll.textContent = 'Copied!';
           setTimeout(() => (copyAll.textContent = 'Copy all'), 1200);
         } catch (e) {
