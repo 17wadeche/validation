@@ -115,7 +115,12 @@ def _format_code_section(label: str, snippets: List[str]) -> str:
         return ""
     return f"## {label}\n" + "\n".join(snippets)
 def _gather_code_context(
-    current_code_files, inline_code: str, old_code_files=None, new_code_files=None
+    current_code_files,
+    inline_code: str,
+    old_code_files=None,
+    new_code_files=None,
+    inline_code_old: str = "",
+    inline_code_new: str = "",
 ) -> str:
     snippets_current: List[str] = []
     snippets_old: List[str] = []
@@ -156,7 +161,19 @@ def _gather_code_context(
         _format_code_section("Updated version (for updates)", snippets_new),
     ]
     if inline_code.strip():
-        sections.append(_format_code_section("Additional notes", [inline_code.strip()]))
+        sections.append(
+            _format_code_section(
+                "Additional notes (current/general)", [inline_code.strip()]
+            )
+        )
+    if inline_code_old.strip():
+        sections.append(
+            _format_code_section("Additional notes (previous)", [inline_code_old.strip()])
+        )
+    if inline_code_new.strip():
+        sections.append(
+            _format_code_section("Additional notes (updated)", [inline_code_new.strip()])
+        )
     return "\n\n".join(part for part in sections if part).strip()
 def _compute_missing_placeholders(template_text: str, draft_json: str) -> List[str]:
     if not template_text or not draft_json:
@@ -217,6 +234,8 @@ def _build_prompt_from_request(
         form.get("code_context", ""),
         old_code_files=files.getlist("code_files_old") if release_type == "update" else None,
         new_code_files=files.getlist("code_files_new") if release_type == "update" else None,
+        inline_code_old=form.get("code_context_old", ""),
+        inline_code_new=form.get("code_context_new", ""),
     )
     prompt = build_prompt(
         template_text or "",
@@ -245,6 +264,8 @@ def index():
     draft_questions: List[str] = []
     template_bytes: Optional[bytes] = None
     code_context_text: str = ""
+    code_context_old_text: str = ""
+    code_context_new_text: str = ""
     template_text: str = ""
     missing_placeholders: List[str] = []
     coverage_note: Optional[str] = None
@@ -297,6 +318,8 @@ def index():
         release_type = request.form.get("release_type", "initial") or "initial"
         history_json = request.form.get("history_json", "[]")
         code_context_text = request.form.get("code_context", "")
+        code_context_old_text = request.form.get("code_context_old", "")
+        code_context_new_text = request.form.get("code_context_new", "")
         try:
             history = json.loads(history_json) if history_json else []
         except json.JSONDecodeError:
@@ -329,6 +352,8 @@ def index():
                 draft_questions=draft_questions,
                 draft_json=draft_json_from_form,
                 code_context=code_context_text,
+                code_context_old=code_context_old_text,
+                code_context_new=code_context_new_text,
                 release_type=release_type,
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
@@ -356,6 +381,8 @@ def index():
                 draft_questions=draft_questions,
                 draft_json=draft_json_from_form,
                 code_context=code_context_text,
+                code_context_old=code_context_old_text,
+                code_context_new=code_context_new_text,
                 release_type=release_type,
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
@@ -369,6 +396,8 @@ def index():
             draft_questions = []
             draft_json_from_form = ""
             code_context_text = ""
+            code_context_old_text = ""
+            code_context_new_text = ""
             coverage_note = None
             template_text = ""
             missing_placeholders = []
@@ -387,6 +416,8 @@ def index():
                 draft_questions=draft_questions,
                 draft_json=draft_json_from_form,
                 code_context=code_context_text,
+                code_context_old=code_context_old_text,
+                code_context_new=code_context_new_text,
                 coverage_note=coverage_note,
                 template_text=template_text,
                 missing_placeholders=missing_placeholders,
@@ -653,6 +684,8 @@ def index():
         plan_text=plan_text,
         draft_questions=draft_questions,
         code_context=code_context_text,
+        code_context_old=code_context_old_text,
+        code_context_new=code_context_new_text,
         draft_json=draft_json_from_form,
         coverage_note=coverage_note,
         template_text=template_text,
@@ -909,32 +942,64 @@ TEMPLATE = """
         <div class=\"panel\" data-step=\"Step 3\">
           <h3>Code & context</h3>
           <p>Attach relevant code or notes so answers stay anchored to your build.</p>
-          <div class=\"stack\">
-            <div class=\"file-picker-row\">
-              <label class=\"btn btn-ghost\" style=\"padding:8px 12px;\">Add files
-                <input type=\"file\" id=\"codeFilesPicker\" multiple style=\"display:none;\">
-              </label>
-              <label class=\"btn btn-ghost\" style=\"padding:8px 12px;\">Add folder
-                <input type=\"file\" id=\"codeFolderPicker\" webkitdirectory directory multiple style=\"display:none;\">
-              </label>
-            </div>
-            <input class=\"input\" type=\"file\" name=\"code_files\" id=\"codeFilesManaged\" multiple style=\"display:none;\">
-            <div id=\"codeFileList\" class=\"stack\" style=\"gap:6px;\"></div>
-            <div class=\"update-only\" style=\"margin-top: 4px; display:none;\">
-              <div class=\"tag-row\">
-                <span class=\"pill pill-old\">OLD</span>
-                <span class=\"muted\" style=\"margin:0;\">Previous code or config</span>
+          <div class="stack">
+            <div class="initial-only">
+              <div class="tag-row" style="margin-bottom:4px;">
+                <span class="pill">Current / general</span>
+                <span class="muted">Files and snippets that describe the current build overall.</span>
               </div>
-              <input class=\"input\" type=\"file\" name=\"code_files_old\" multiple>
-              <div class=\"tag-row\" style=\"margin-top: 10px;\">
-                <span class=\"pill pill-new\">NEW</span>
-                <span class=\"muted\" style=\"margin:0;\">Updated code or config</span>
+              <div class="file-picker-row">
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add files
+                  <input type="file" id="codeFilesPicker" multiple style="display:none;">
+                </label>
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add folder
+                  <input type="file" id="codeFolderPicker" webkitdirectory directory multiple style="display:none;">
+                </label>
               </div>
-              <input class=\"input\" type=\"file\" name=\"code_files_new\" multiple>
+              <input class="input" type="file" name="code_files" id="codeFilesManaged" multiple style="display:none;">
+              <div id="codeFileList" class="stack" style="gap:6px;"></div>
+              <div style="margin-top:6px;">
+                <label class="muted" style="font-weight:600;">Provide supporting snippets (current/general)</label>
+                <textarea name="code_context" placeholder="Paste notes, links, or code snippets for the current implementation.">{{ code_context }}</textarea>
+              </div>
             </div>
-            <div>
-              <label class=\"muted\" style=\"font-weight:600;\">Provide supporting snippets</label>
-              <textarea name=\"code_context\" placeholder=\"Paste notes, links, or code snippets to ground the output.\">{{ code_context }}</textarea>
+            <div class="update-only" style="margin-top: 10px; display:none;">
+              <div class="tag-row">
+                <span class="pill pill-old">OLD</span>
+                <span class="muted" style="margin:0;">Previous code or config</span>
+              </div>
+              <div class="file-picker-row" style="margin-top:6px;">
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add files
+                  <input type="file" id="codeFilesOldPicker" multiple style="display:none;">
+                </label>
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add folder
+                  <input type="file" id="codeFolderOldPicker" webkitdirectory directory multiple style="display:none;">
+                </label>
+              </div>
+              <input class="input" type="file" name="code_files_old" id="codeFilesOldManaged" multiple style="display:none;">
+              <div id="codeFileOldList" class="stack" style="gap:6px;"></div>
+              <div style="margin-top:6px;">
+                <label class="muted" style="font-weight:600;">Provide supporting snippets (previous)</label>
+                <textarea name="code_context_old" placeholder="Notes or code snippets that describe the PRIOR implementation.">{{ code_context_old }}</textarea>
+              </div>
+              <div class="tag-row" style="margin-top: 14px;">
+                <span class="pill pill-new">NEW</span>
+                <span class="muted" style="margin:0;">Updated code or config</span>
+              </div>
+              <div class="file-picker-row" style="margin-top:6px;">
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add files
+                  <input type="file" id="codeFilesNewPicker" multiple style="display:none;">
+                </label>
+                <label class="btn btn-ghost" style="padding:8px 12px;">Add folder
+                  <input type="file" id="codeFolderNewPicker" webkitdirectory directory multiple style="display:none;">
+                </label>
+              </div>
+              <input class="input" type="file" name="code_files_new" id="codeFilesNewManaged" multiple style="display:none;">
+              <div id="codeFileNewList" class="stack" style="gap:6px;"></div>
+              <div style="margin-top:6px;">
+                <label class="muted" style="font-weight:600;">Provide supporting snippets (updated)</label>
+                <textarea name="code_context_new" placeholder="Notes or code snippets that describe the UPDATED implementation.">{{ code_context_new }}</textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -1037,6 +1102,8 @@ TEMPLATE = """
             <textarea name="draft_json" style="display:none;">{{ draft }}</textarea>
             <input type="hidden" name="plan_text" value="{{ plan_text }}">
             <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
+            <textarea name="code_context_old" style="display:none;">{{ code_context_old }}</textarea>
+            <textarea name="code_context_new" style="display:none;">{{ code_context_new }}</textarea>
             <input type="hidden" name="use_model" value="on">
             <input type="hidden" name="model" id="answersModel" value="{{ defaults.model }}">
             <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
@@ -1157,6 +1224,8 @@ TEMPLATE = """
           <input type="hidden" name="plan_text" value="{{ plan_text }}">
           <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
           <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
+          <textarea name="code_context_old" style="display:none;">{{ code_context_old }}</textarea>
+          <textarea name="code_context_new" style="display:none;">{{ code_context_new }}</textarea>
           <input type="hidden" name="history_json" value='{{ history | tojson }}'>
           <textarea name="chat_input" placeholder="Ask a question or request edits..." style="min-height: 80px;"></textarea>
           <div class="actions" style="margin-top: 10px;">
@@ -1195,6 +1264,7 @@ TEMPLATE = """
     const removeTemplateButton = document.getElementById('removeTemplateButton');
     const releaseValue = '{{ release_type }}';
     const updateSections = Array.from(document.querySelectorAll('.update-only'));
+    const initialSections = Array.from(document.querySelectorAll('.initial-only'));
     const releaseRadios = Array.from(document.querySelectorAll('input[name="release_type"]'));
     const rememberInputs = document.querySelector('input[name="remember_inputs"]');
     const templateInput = document.querySelector('input[name="template_file"]');
@@ -1203,6 +1273,14 @@ TEMPLATE = """
     const codeFilesPicker = document.getElementById('codeFilesPicker');
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
+    const codeFilesOldManaged = document.getElementById('codeFilesOldManaged');
+    const codeFilesOldPicker = document.getElementById('codeFilesOldPicker');
+    const codeFolderOldPicker = document.getElementById('codeFolderOldPicker');
+    const codeFileOldList = document.getElementById('codeFileOldList');
+    const codeFilesNewManaged = document.getElementById('codeFilesNewManaged');
+    const codeFilesNewPicker = document.getElementById('codeFilesNewPicker');
+    const codeFolderNewPicker = document.getElementById('codeFolderNewPicker');
+    const codeFileNewList = document.getElementById('codeFileNewList');
     const uncheckAllExamplesButton = document.getElementById('uncheckAllExamples');
     const scrollBottomBtn = document.getElementById('scrollBottomBtn');
     const modelSelect = document.getElementById('model');
@@ -1220,9 +1298,12 @@ TEMPLATE = """
     let answersReleaseInput = null;
     let chatReleaseInput = null;
     function syncUpdateSections(value) {
-      const show = value === 'update';
+      const isUpdate = value === 'update';
       updateSections.forEach((node) => {
-        node.style.display = show ? '' : 'none';
+        node.style.display = isUpdate ? '' : 'none';
+      });
+      initialSections.forEach((node) => {
+        node.style.display = isUpdate ? 'none' : '';
       });
     }
     function syncReleaseInputs(value) {
@@ -1290,66 +1371,91 @@ TEMPLATE = """
         });
       });
     }
-    const codeStore = new Map();
-    function rebuildCodeFiles() {
-      if (!codeFilesManaged || typeof DataTransfer === 'undefined') return;
-      const dt = new DataTransfer();
-      if (codeFileList) codeFileList.innerHTML = '';
-      codeStore.forEach((file, key) => {
-        dt.items.add(file);
-        if (codeFileList) {
-          const row = document.createElement('div');
-          row.style.display = 'flex';
-          row.style.alignItems = 'center';
-          row.style.gap = '8px';
-          row.style.justifyContent = 'space-between';
-          row.style.padding = '6px 10px';
-          row.style.border = '1px solid #e2e8f0';
-          row.style.borderRadius = '10px';
-          row.style.background = 'white';
-          const name = document.createElement('span');
-          name.textContent = key;
-          name.style.flex = '1';
-          const removeBtn = document.createElement('button');
-          removeBtn.type = 'button';
-          removeBtn.className = 'btn btn-ghost';
-          removeBtn.textContent = '−';
-          removeBtn.style.padding = '6px 10px';
-          removeBtn.title = 'Remove file';
-          removeBtn.addEventListener('click', () => {
-            codeStore.delete(key);
-            rebuildCodeFiles();
-          });
-          row.appendChild(name);
-          row.appendChild(removeBtn);
-          codeFileList.appendChild(row);
-        }
-      });
-      codeFilesManaged.files = dt.files;
+    function createManagedFileBucket(pickerEl, folderPickerEl, managedInputEl, listContainerEl) {
+      if (!managedInputEl) return null;
+      const store = new Map();
+      function rebuild() {
+        if (typeof DataTransfer === 'undefined') return;
+        const dt = new DataTransfer();
+        if (listContainerEl) listContainerEl.innerHTML = '';
+        store.forEach((file, key) => {
+          dt.items.add(file);
+          if (listContainerEl) {
+            const row = document.createElement('div');
+            row.style.display = 'flex';
+            row.style.alignItems = 'center';
+            row.style.gap = '8px';
+            row.style.justifyContent = 'space-between';
+            row.style.padding = '6px 10px';
+            row.style.border = '1px solid #e2e8f0';
+            row.style.borderRadius = '10px';
+            row.style.background = 'white';
+            const name = document.createElement('span');
+            name.textContent = key;
+            name.style.flex = '1';
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-ghost';
+            removeBtn.textContent = '−';
+            removeBtn.style.padding = '6px 10px';
+            removeBtn.title = 'Remove file';
+            removeBtn.addEventListener('click', () => {
+              store.delete(key);
+              rebuild();
+            });
+            row.appendChild(name);
+            row.appendChild(removeBtn);
+            listContainerEl.appendChild(row);
+          }
+        });
+        managedInputEl.files = dt.files;
+      }
+      function addFiles(fileList) {
+        if (!fileList) return;
+        Array.from(fileList).forEach((file) => {
+          const key =
+            file.webkitRelativePath && file.webkitRelativePath.length
+              ? file.webkitRelativePath
+              : file.name;
+          if (!store.has(key)) {
+            store.set(key, file);
+          }
+        });
+        if (rememberInputs) rememberInputs.checked = true;
+        rebuild();
+      }
+      if (pickerEl) {
+        pickerEl.addEventListener('change', (event) => {
+          addFiles(event.target.files);
+          pickerEl.value = '';
+        });
+      }
+      if (folderPickerEl) {
+        folderPickerEl.addEventListener('change', (event) => {
+          addFiles(event.target.files);
+          folderPickerEl.value = '';
+        });
+      }
+      return { addFiles, rebuild, store };
     }
-    function addCodeFiles(fileList) {
-      if (!fileList) return;
-      Array.from(fileList).forEach((file) => {
-        const key = file.webkitRelativePath && file.webkitRelativePath.length ? file.webkitRelativePath : file.name;
-        if (!codeStore.has(key)) {
-          codeStore.set(key, file);
-        }
-      });
-      if (rememberInputs) rememberInputs.checked = true;
-      rebuildCodeFiles();
-    }
-    if (codeFilesPicker) {
-      codeFilesPicker.addEventListener('change', (event) => {
-        addCodeFiles(event.target.files);
-        codeFilesPicker.value = '';
-      });
-    }
-    if (codeFolderPicker) {
-      codeFolderPicker.addEventListener('change', (event) => {
-        addCodeFiles(event.target.files);
-        codeFolderPicker.value = '';
-      });
-    }
+    const currentCodeBucket = createManagedFileBucket(
+      codeFilesPicker,
+      codeFolderPicker,
+      codeFilesManaged,
+      codeFileList
+    );
+    const oldCodeBucket = createManagedFileBucket(
+      codeFilesOldPicker,
+      codeFolderOldPicker,
+      codeFilesOldManaged,
+      codeFileOldList
+    );
+    const newCodeBucket = createManagedFileBucket(
+      codeFilesNewPicker,
+      codeFolderNewPicker,
+      codeFilesNewManaged,
+      codeFileNewList
+    );
     if (answersForm) {
       const rel = document.createElement('input');
       rel.type = 'hidden';
