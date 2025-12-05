@@ -266,6 +266,7 @@ def index():
             "base_url": stored.base_url or defaults["base_url"],
             "api_version": stored.api_version or defaults["api_version"],
             "path_template": stored.path_template or defaults["path_template"],
+            "model": getattr(stored, "model", "") or defaults["model"],
         }
     )
     if request.method == "POST":
@@ -435,6 +436,7 @@ def index():
                     api_version=request.form.get("api_version", "").strip() or defaults["api_version"],
                     base_url=request.form.get("base_url", "").strip() or defaults["base_url"],
                     path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
+                    model=model,
                 )
                 save_credentials(stored)
         if action in {"answers", "refine"}:
@@ -603,6 +605,7 @@ def index():
                 api_version=client.api_version,
                 base_url=client.base_url,
                 path_template=client.path_template,
+                model=model,
             )
             save_credentials(stored)
         coverage_note = None
@@ -1137,7 +1140,7 @@ TEMPLATE = """
         <form method="post" class="chat" id="chatForm">
           <input type="hidden" name="action" value="chat">
           <input type="hidden" name="use_model" value="on">
-          <input type="hidden" name="model" id="answersModel" value="{{ defaults.model }}">
+          <input type="hidden" name="model" id="chatModel" value="{{ defaults.model }}">
           <input type="hidden" name="base_url" value="{{ defaults.base_url }}">
           <input type="hidden" name="api_version" value="{{ defaults.api_version }}">
           <input type="hidden" name="path_template" value="{{ defaults.path_template }}">
