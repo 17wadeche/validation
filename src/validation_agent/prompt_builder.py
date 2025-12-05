@@ -56,13 +56,32 @@ def extract_placeholders(template: str) -> List[str]:
     pattern = re.compile(r"(<[^>]+>|\[\[[^\]]+\]\]|\{[^}]+\}|_{3,})")
     found = set(match.strip() for match in pattern.findall(template))
     return sorted(found)
-def build_planning_prompt(template: str, examples: Iterable[Example], code_context: str) -> str:
+def build_planning_prompt(
+    template: str,
+    examples: Iterable[Example],
+    code_context: str,
+    release_type: str = "initial",
+) -> str:
+    release_label = "initial release" if release_type == "initial" else "update / change request"
     prompt_sections = [
         "You are a Medtronic validation planning assistant.",
+        f"This is an {release_label}.",
         "Inspect the template and summarize what must be filled before drafting.",
-        "Return JSON only with three keys: {\n  \"needs\": [ {\"token\": str, \"description\": str, \"where\": str} ],\n  \"clarifying_questions\": [str],\n  \"drafting_steps\": [ {\"section\": str, \"tokens\": [str], \"notes\": str} ]\n}.",
+        "Return JSON only with three keys: {\n"
+        "  \"needs\": [ {\"token\": str, \"description\": str, \"where\": str} ],\n"
+        "  \"clarifying_questions\": [str],\n"
+        "  \"drafting_steps\": [ {\"section\": str, \"tokens\": [str], \"notes\": str} ]\n"
+        "}.",
         "Do not generate the draft itself—focus on the fill plan and concise questions to unblock drafting.",
     ]
+    if release_type != "initial":
+        prompt_sections.append(
+            "\nFor an update/change:\n"
+            "- Treat the provided examples as the last 2–3 validation/quality assurance documents.\n"
+            "- Use the code context sections labeled 'Current code/context', "
+            "'Previous version (for updates)', and 'Updated version (for updates)' to understand deltas.\n"
+            "- Plan to keep unchanged sections aligned with prior QA docs and focus questions on new or changed behavior."
+        )
     prompt_sections.append("\n## Template\n" + template.strip())
     placeholders = extract_placeholders(template)
     if placeholders:
@@ -72,7 +91,13 @@ def build_planning_prompt(template: str, examples: Iterable[Example], code_conte
         )
     formatted_examples = format_examples(examples)
     if formatted_examples:
-        prompt_sections.append("\n## Reference examples\n" + formatted_examples)
+        header = "\n## Reference examples\n"
+        if release_type != "initial":
+            header += (
+                "Treat these as prior validation/quality assurance documents for this tool "
+                "or similar tools. Use them as the canonical pattern for tone, sections, and level of detail.\n"
+            )
+        prompt_sections.append(header + formatted_examples)
     prompt_sections.append(
         "\n## Program code context\n"
         "Use the following code snapshot for grounding; flag any missing pieces that prevent filling the template.\n"
@@ -130,17 +155,44 @@ def build_prompt(
         )
     formatted_examples = format_examples(examples)
     if formatted_examples:
-        prompt_sections.append("\n## Reference examples\n" + formatted_examples)
+        header = "\n## Reference examples\n"
+        if release_type != "initial":
+            header += (
+                "Treat these as the last 2–3 validation/quality assurance documents for this tool "
+                "or similar tools. Use them as:\n"
+                "- The canonical tone and structure for the updated document, and\n"
+                "- The prior QA baseline to keep unchanged sections consistent.\n"
+            )
+        else:
+            header += (
+                "Use these documents to match tone, structure, and level of detail for this new validation.\n"
+            )
+        prompt_sections.append(header + formatted_examples)
     if plan_context and plan_context.strip():
         prompt_sections.append(
             "\n## Drafting plan\n"
             "Use this plan when deciding where to place generated content. If details are missing, ask clarifying questions before replacing placeholders.\n"
             + plan_context.strip()
         )
+    if release_type == "initial":
+        code_intro = (
+            "Use the following code snapshot to ground the validation description. "
+            "Focus on behaviors, data flows, risk mitigations, and control mechanisms visible in the code."
+        )
+    else:
+        code_intro = (
+            "Use the following code snapshot to ground the validation description.\n"
+            "- Sections under '## Current code/context' and lines starting with '# Current File:' describe the current implementation.\n"
+            "- Sections under '## Previous version (for updates)' and '# Previous File:' describe the prior implementation.\n"
+            "- Sections under '## Updated version (for updates)' and '# Updated File:' describe the new implementation after the change.\n"
+            "When drafting answers, describe the behavior of the UPDATED implementation while:\n"
+            "- Preserving wording consistent with prior validation docs where behavior is unchanged, and\n"
+            "- Explicitly reflecting changes only where the code has actually changed."
+        )
     prompt_sections.append(
         "\n## Program code context\n"
-        "Use the following code snapshot to ground the validation description."
-        " Focus on behaviors, data flows, risk mitigations, and control mechanisms visible in the code.\n"
+        + code_intro
+        + "\n"
         + code_context.strip()
     )
     prompt_sections.append(

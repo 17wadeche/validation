@@ -541,7 +541,7 @@ def index():
         elif action == "build" and client:
             if not plan_text.strip():
                 planning_prompt = build_planning_prompt(
-                    template_text or "", examples, code_context
+                    template_text or "", examples, code_context, release_type=release_type
                 )
                 try:
                     plan_text = client.generate_completion(planning_prompt, model=model)
@@ -854,7 +854,10 @@ TEMPLATE = """
               </label>
               <label class="checkbox" style="align-items:flex-start;">
                 <input type="radio" name="release_type" value="update" {% if release_type == 'update' %}checked{% endif %}>
-                <span>Update/change: upload prior + current code/files so deltas are clear</span>
+                <span>
+                  Update/change: use the last 2–3 validation/quality assurance documents as examples
+                  and upload prior + current code/files so deltas are clear.
+                </span>
               </label>
               <p class="muted" style="margin:0;">When set to update, extra slots appear for previous vs updated code/context so GPT knows what changed.</p>
             </div>
@@ -862,7 +865,11 @@ TEMPLATE = """
         </div>
         <div class="panel" data-step="Step 2">
           <h3>Examples</h3>
-          <p>Provide example docs to guide tone and structure.</p>
+          <p>
+            Provide example docs to guide tone and structure &mdash;
+            ideally the last 2–3 validation/quality assurance documents for this tool (or a similar one),
+            especially when doing an update/change.
+          </p>
           <div class="stack">
             <input class="input" type="file" name="examples" multiple>
             {% if saved_inputs.examples %}
