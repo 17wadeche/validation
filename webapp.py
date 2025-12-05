@@ -1479,9 +1479,9 @@ TEMPLATE = """
     }
     function buildMarkdownFromDraft(parsed) {
       if (!parsed) {
-        return '# Answers_No data found in JSON._';
+        return '# Answers\\n\\n_No data found in JSON._\\n';
       }
-      let md = '# Answers';
+      let md = '# Answers\\n\\n';
       const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
       if (answers.length) {
         answers.forEach((item, idx) => {
@@ -1496,27 +1496,27 @@ TEMPLATE = """
           if (typeof value === 'string') {
             valueString = value;
           } else if (value === null || value === undefined) {
-            valueString = '';
+            valueString = '_(empty)_';
           } else {
-            valueString = '```json' + JSON.stringify(value, null, 2) + '```';
+            valueString = '```json\\n' + JSON.stringify(value, null, 2) + '\\n```';
           }
-          md += `## ${placeholder}`;
+          md += `## ${placeholder}\\n\\n`;
           if (valueString.trim()) {
-            md += valueString + '';
+            md += valueString + '\\n\\n';
           } else {
-            md += '_(empty)_';
+            md += '_(empty)_\\n\\n';
           }
         });
       } else {
-        md += '_No answers found in JSON._';
+        md += '_No answers found in JSON._\\n\\n';
       }
       const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
       if (questions.length) {
-        md += '## Remaining questions';
+        md += '## Remaining questions\\n\\n';
         questions.forEach((q) => {
-          md += `- ${q}`;
+          md += `- ${q}\\n`;
         });
-        md += '';
+        md += '\\n';
       }
       return md;
     }
