@@ -205,6 +205,79 @@ def build_prompt(
         "- Never fabricate person names or signatures; leave them blank or ask a question when not provided."
     )
     return "\n\n".join(prompt_sections).strip() + "\n"
+def build_functional_requirements_prompt(
+    template: str,
+    examples: Iterable[Example],
+    code_context: str,
+    plan_context: str | None = None,
+    release_type: str = "initial",
+) -> str:
+    release_label = "initial release" if release_type == "initial" else "update / change request"
+    sections: list[str] = [
+        "You are assisting with Medtronic validation for an internal tool.",
+        "Your ONLY task in this call is to derive a complete, testable set of FUNCTIONAL requirements.",
+        "",
+        "Functional requirements = what the tool SHALL do:",
+        "- inputs, processing, outputs",
+        "- error handling and validation",
+        "- modes / workflows / options the user can choose",
+        "- constraints that are directly testable on the tool’s behaviour.",
+        "",
+        "Do NOT include non-functional requirements (performance, security, usability, etc.).",
+        "Do NOT repeat or restate quality system requirements or process steps.",
+        "",
+        f"This is an {release_label}. Base the requirements on:",
+        "- The validation template (especially the Functional Requirements section and any blue instructional text).",
+        "- The intended use and risk context implied by the template/examples.",
+        "- The program code / workbook / PBIX context (what the tool actually does).",
+    ]
+    sections.append(
+        "\n## Template\n"
+        "Use this to understand the structure and any guidance in the Functional Requirements section:\n"
+        + template.strip()
+    )
+    placeholders = extract_placeholders(template)
+    if placeholders:
+        sections.append(
+            "\n## Detected placeholders\n"
+            + "\n".join(f"- {token}" for token in placeholders)
+        )
+    formatted_examples = format_examples(examples)
+    if formatted_examples:
+        sections.append(
+            "\n## Reference validation examples\n"
+            "Use these to calibrate the level of detail and phrasing of requirements, "
+            "but keep the requirements specific to THIS tool.\n"
+            + formatted_examples
+        )
+    if plan_context and plan_context.strip():
+        sections.append(
+            "\n## Planning JSON\n"
+            "Use this to understand which sections/tokens exist, and which behaviours matter most.\n"
+            + plan_context.strip()
+        )
+    sections.append(
+        "\n## Program code / workbook / PBIX context\n"
+        "Derive requirements from what the implementation actually does: inputs, transformations, outputs, "
+        "validation logic, and error handling.\n"
+        + code_context.strip()
+    )
+    sections.append(
+        "\n## Output format (IMPORTANT)\n"
+        "Return VALID JSON ONLY, no markdown, no code fences.\n"
+        "The top-level value MUST be an array, e.g.:\n"
+        "[\n"
+        "  {\"Unique Req ID\": \"F1\", \"Description\": \"...\", \"Release Implemented\": \"1.0\"},\n"
+        "  {\"Unique Req ID\": \"F2\", \"Description\": \"...\", \"Release Implemented\": \"1.0\"}\n"
+        "]\n"
+        "\nRules:\n"
+        "- Each requirement must be atomic and testable.\n"
+        "- Use IDs F1, F2, F3, ... sequentially with no gaps.\n"
+        "- If you are unsure of the exact release number, use \"1.0\" as a placeholder; the caller may override it.\n"
+        "- Do NOT include commentary, explanations, or any keys other than: "
+        "\"Unique Req ID\", \"Description\", \"Release Implemented\"."
+    )
+    return "\n\n".join(sections).strip() + "\n"
 def build_design_update_prompt(
     template: str,
     examples: Iterable[Example],

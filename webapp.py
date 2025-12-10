@@ -11,6 +11,7 @@ from src.validation_agent.prompt_builder import (
     build_update_prompt,
     extract_placeholders,
     build_design_update_prompt,
+    build_functional_requirements_prompt,
 )
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
@@ -591,6 +592,67 @@ def index():
                     draft_questions = _extract_questions_from_json(draft)
                 except MedtronicGPTError as exc:
                     error = str(exc)
+            if not error and draft and template_text:
+                try:
+                    parsed = json.loads(draft)
+                except json.JSONDecodeError:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    placeholders_map = parsed.get("placeholders")
+                    if not isinstance(placeholders_map, dict):
+                        placeholders_map = {}
+                    tokens = extract_placeholders(template_text)
+                    if "<Functional Requirements>" in tokens:
+                        try:
+                            fr_prompt = build_functional_requirements_prompt(
+                                template_text or "",
+                                examples,
+                                code_context,
+                                plan_context=plan_text,
+                                release_type=release_type,
+                            )
+                            fr_raw = client.generate_completion(fr_prompt, model=model)
+                            fr_data = json.loads(fr_raw)
+                            if isinstance(fr_data, dict) and "functional_requirements" in fr_data:
+                                fr_list = fr_data["functional_requirements"]
+                            else:
+                                fr_list = fr_data
+                            functional_reqs: list[dict] = []
+                            if isinstance(fr_list, list):
+                                version_value = ""
+                                version_source = parsed.get("placeholders")
+                                if isinstance(version_source, dict):
+                                    for key in ("<#.#.#>", "<Tool Release>", "<Release Version>"):
+                                        v = version_source.get(key)
+                                        if isinstance(v, str) and v.strip():
+                                            version_value = v.strip()
+                                            break
+                                for idx, item in enumerate(fr_list, start=1):
+                                    if isinstance(item, dict):
+                                        desc = item.get("Description") or item.get("description") or ""
+                                        req_id = item.get("Unique Req ID") or item.get("id") or ""
+                                    else:
+                                        desc = str(item)
+                                        req_id = ""
+                                    desc = str(desc).strip()
+                                    if not desc:
+                                        continue
+                                    if not isinstance(req_id, str) or not req_id.strip():
+                                        req_id = f"F{idx}"
+                                    functional_reqs.append(
+                                        {
+                                            "Unique Req ID": req_id,
+                                            "Description": desc,
+                                            "Release Implemented": version_value or "1.0",
+                                        }
+                                    )
+                            if functional_reqs:
+                                placeholders_map["<Functional Requirements>"] = functional_reqs
+                                parsed["placeholders"] = placeholders_map
+                                draft = json.dumps(parsed, indent=2)
+                        except (MedtronicGPTError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                            if not error:
+                                error = f"Functional requirements enrichment failed: {exc}"
             if not error and draft:
                 try:
                     design_update_prompt = build_design_update_prompt(

@@ -7,6 +7,7 @@ from .prompt_builder import (
     build_prompt,
     build_update_prompt,
     build_design_update_prompt,
+    build_functional_requirements_prompt,
     format_examples,
     load_examples,
 )
@@ -19,6 +20,7 @@ __all__ = [
     "build_design_update_prompt", 
     "format_examples",
     "load_code_context",
+    "build_functional_requirements_prompt",
     "load_examples",
     "load_text_document",
     "MedtronicGPTClient",
