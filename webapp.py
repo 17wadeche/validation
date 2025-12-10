@@ -1270,7 +1270,7 @@ TEMPLATE = """
     const templateInput = document.querySelector('input[name="template_file"]');
     const examplesInput = document.querySelector('input[name="examples"]');
     const codeFilesManaged = document.getElementById('codeFilesManaged');
-    const templateText = {{ template_text|tojson if template_text else '""' }};
+    const templateText = {{ (template_text or "")|tojson }};
     const codeFilesPicker = document.getElementById('codeFilesPicker');
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
