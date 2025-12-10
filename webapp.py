@@ -1270,6 +1270,7 @@ TEMPLATE = """
     const templateInput = document.querySelector('input[name="template_file"]');
     const examplesInput = document.querySelector('input[name="examples"]');
     const codeFilesManaged = document.getElementById('codeFilesManaged');
+    const templateText = {{ template_text|tojson if template_text else '""' }};
     const codeFilesPicker = document.getElementById('codeFilesPicker');
     const codeFolderPicker = document.getElementById('codeFolderPicker');
     const codeFileList = document.getElementById('codeFileList');
@@ -1568,6 +1569,32 @@ TEMPLATE = """
       }
       return escapeHtml(value);
     }
+    function hasNonEmptyValue(value) {
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim().length > 0;
+      if (Array.isArray(value)) {
+        return value.some(function (v) { return hasNonEmptyValue(v); });
+      }
+      if (typeof value === 'object') {
+        return Object.keys(value).length > 0;
+      }
+      return true;
+    }
+    function orderKeysByTemplate(keys) {
+      if (!templateText || typeof templateText !== 'string' || !templateText.length) {
+        return keys.slice().sort(function (a, b) {
+          return a.localeCompare(b, undefined, { sensitivity: 'base' });
+        });
+      }
+      return keys.slice().sort(function (a, b) {
+        var ia = templateText.indexOf(a);
+        var ib = templateText.indexOf(b);
+        var aPos = ia === -1 ? Number.MAX_SAFE_INTEGER : ia;
+        var bPos = ib === -1 ? Number.MAX_SAFE_INTEGER : ib;
+        if (aPos !== bPos) return aPos - bPos;
+        return a.localeCompare(b, undefined, { sensitivity: 'base' });
+      });
+    }
     function renderFriendly() {
       if (!friendlyView) return;
       const parsed = parseDraft();
@@ -1600,73 +1627,68 @@ TEMPLATE = """
       const keySet = new Set();
       Object.keys(placeholdersMap || {}).forEach((k) => keySet.add(k));
       Object.keys(answersByPlaceholder).forEach((k) => keySet.add(k));
-      const keys = Array.from(keySet);
-      keys.sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: 'base' })
-      );
+      const orderedKeys = orderKeysByTemplate(Array.from(keySet));
       const sections = [];
-      if (keys.length) {
-        const itemsHtml = keys
-          .map((ph) => {
-            const mapVal =
-              placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
-                ? placeholdersMap[ph]
-                : undefined;
-            const answerItems = answersByPlaceholder[ph] || [];
-            let primaryValue = undefined;
-            if (
-              mapVal !== undefined &&
-              mapVal !== null &&
-              String(mapVal).trim() !== ''
-            ) {
-              primaryValue = mapVal;
+      const items = [];
+      orderedKeys.forEach((ph) => {
+        const mapVal =
+          placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
+            ? placeholdersMap[ph]
+            : undefined;
+        const answerItems = answersByPlaceholder[ph] || [];
+        let primaryValue;
+        if (hasNonEmptyValue(mapVal)) {
+          primaryValue = mapVal;
+        }
+        for (const ans of answerItems) {
+          const v =
+            ans.replacement !== undefined ? ans.replacement : ans.answer;
+          if (hasNonEmptyValue(v)) {
+            if (primaryValue === undefined) {
+              primaryValue = v;
             }
-            for (const ans of answerItems) {
-              const v =
-                ans.replacement !== undefined ? ans.replacement : ans.answer;
-              if (v !== undefined && v !== null && String(v).trim() !== '') {
-                if (primaryValue === undefined) {
-                  primaryValue = v;
-                }
-              }
-            }
-            const valueHtml = formatValue(primaryValue);
-            const details = [];
-            answerItems.forEach((ans) => {
-              const q =
-                ans.question && ans.question !== ph
-                  ? String(ans.question)
-                  : '';
-              const where =
-                ans.where || ans.location || '';
-              const pieces = [];
-              if (q) {
-                pieces.push('<em>' + escapeHtml(q) + '</em>');
-              }
-              if (where) {
-                pieces.push(
-                  '<span style="color:#64748b;">' + escapeHtml(where) + '</span>'
-                );
-              }
-              if (!pieces.length) return;
-              details.push('<li>' + pieces.join(' – ') + '</li>');
-            });
-            const detailsHtml = details.length
-              ? '<ul style="margin:4px 0 0 18px;">' + details.join('') + '</ul>'
+          }
+        }
+        if (!hasNonEmptyValue(primaryValue)) {
+          return;
+        }
+        const valueHtml = formatValue(primaryValue);
+        const details = [];
+        answerItems.forEach((ans) => {
+          const q =
+            ans.question && ans.question !== ph
+              ? String(ans.question)
               : '';
-            return `
-              <li style="margin-bottom:6px;">
-                <div><strong>${escapeHtml(ph)}</strong> → ${valueHtml}</div>
-                ${detailsHtml}
-              </li>
-            `;
-          })
-          .join('');
+          const where =
+            ans.where || ans.location || '';
+          const pieces = [];
+          if (q) {
+            pieces.push('<em>' + escapeHtml(q) + '</em>');
+          }
+          if (where) {
+            pieces.push(
+              '<span style="color:#64748b;">' + escapeHtml(where) + '</span>'
+            );
+          }
+          if (!pieces.length) return;
+          details.push('<li>' + pieces.join(' – ') + '</li>');
+        });
+        const detailsHtml = details.length
+          ? '<ul style="margin:4px 0 0 18px;">' + details.join('') + '</ul>'
+          : '';
+        items.push(`
+          <li style="margin-bottom:6px;">
+            <div><strong>${escapeHtml(ph)}</strong> → ${valueHtml}</div>
+            ${detailsHtml}
+          </li>
+        `);
+      });
+      if (items.length) {
         sections.push(
           `<div style="margin-bottom: 10px;">
-            <div class="pill" style="margin-bottom:6px;">Placeholders &amp; values</div>
-            <ul>${itemsHtml}</ul>
-          </div>`
+             <div class="pill" style="margin-bottom:6px;">Placeholders &amp; values</div>
+             <ul>${items.join('')}</ul>
+           </div>`
         );
       }
       if (questionsList.length) {
@@ -1675,13 +1697,13 @@ TEMPLATE = """
           .join('');
         sections.push(
           `<div>
-            <div class="pill" style="margin-bottom:6px;">Open questions</div>
-            <ul>${qList}</ul>
-          </div>`
+             <div class="pill" style="margin-bottom:6px;">Open questions</div>
+             <ul>${qList}</ul>
+           </div>`
         );
       }
       friendlyView.innerHTML =
-        sections.join('') || 'No parsed placeholders or answers available.';
+        sections.join('') || 'No parsed placeholders with values available.';
     }
     function scalarToMarkdown(value) {
       if (value === null || value === undefined || value === '') {
@@ -1725,22 +1747,22 @@ TEMPLATE = """
       }
       return scalarToMarkdown(value);
     }
-    function buildMarkdownFromDraft(parsed) {
+        function buildMarkdownFromDraft(parsed) {
       if (!parsed) {
         return '# Answers\\n\\n_No data found in JSON._\\n';
       }
-      var placeholdersMap =
+      const placeholdersMap =
         parsed.placeholders &&
         typeof parsed.placeholders === 'object' &&
         !Array.isArray(parsed.placeholders)
           ? parsed.placeholders
           : {};
-      var answersList = Array.isArray(parsed.answers) ? parsed.answers : [];
-      var questionsList = Array.isArray(parsed.questions) ? parsed.questions : [];
-      var answersByPlaceholder = {};
+      const answersList = Array.isArray(parsed.answers) ? parsed.answers : [];
+      const questionsList = Array.isArray(parsed.questions) ? parsed.questions : [];
+      const answersByPlaceholder = {};
       answersList.forEach(function (item) {
         if (!item || typeof item !== 'object') return;
-        var ph =
+        const ph =
           item.placeholder ||
           item.token ||
           (item.question && String(item.question).trim().length
@@ -1750,84 +1772,74 @@ TEMPLATE = """
         if (!answersByPlaceholder[ph]) answersByPlaceholder[ph] = [];
         answersByPlaceholder[ph].push(item);
       });
-      var keySet = {};
+      const keySet = {};
       Object.keys(placeholdersMap || {}).forEach(function (k) {
         keySet[k] = true;
       });
       Object.keys(answersByPlaceholder).forEach(function (k) {
         keySet[k] = true;
       });
-      var keys = Object.keys(keySet);
-      keys.sort(function (a, b) {
-        return a.localeCompare(b, undefined, { sensitivity: 'base' });
-      });
-      var md = '# Answers\\n\\n';
-      if (keys.length) {
-        keys.forEach(function (ph, idx) {
-          var mapVal =
-            placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
-              ? placeholdersMap[ph]
-              : undefined;
-          var answerItems = answersByPlaceholder[ph] || [];
-          var primaryValue = undefined;
-          if (
-            mapVal !== undefined &&
-            mapVal !== null &&
-            String(mapVal).trim() !== ''
-          ) {
-            primaryValue = mapVal;
-          }
-          answerItems.forEach(function (ans) {
-            var v =
-              ans.replacement !== undefined ? ans.replacement : ans.answer;
-            if (v !== undefined && v !== null && String(v).trim() !== '') {
-              if (primaryValue === undefined) {
-                primaryValue = v;
-              }
-            }
-          });
-          md += '## ' + ph + '\\n\\n';
-          if (primaryValue !== undefined) {
-            var valueMarkdown = valueToMarkdown(primaryValue, 0);
-            if (valueMarkdown && valueMarkdown.trim()) {
-              md += valueMarkdown + '\\n\\n';
-            } else {
-              md += '_(empty)_\\n\\n';
-            }
-          } else {
-            md += '_(empty)_\\n\\n';
-          }
-          if (answerItems.length) {
-            var detailLines = [];
-            answerItems.forEach(function (ans) {
-              var q =
-                ans.question && ans.question !== ph
-                  ? String(ans.question)
-                  : '';
-              var where =
-                ans.where || ans.location || '';
-              if (!q && !where) return;
-              var line = '';
-              if (q) {
-                line += '- _' + q + '_';
-              }
-              if (where) {
-                line += (q ? ' – ' : '- ') + '**Location:** ' + where;
-              }
-              if (!line) return;
-              detailLines.push(line);
-            });
-            if (detailLines.length) {
-              md += 'Additional details:\\n';
-              detailLines.forEach(function (line) {
-                md += line + '\\n';
-              });
-              md += '\\n';
-            }
+      const keys = Object.keys(keySet);
+      const orderedKeys = orderKeysByTemplate(keys);
+      let md = '# Answers\\n\\n';
+      let anyPrinted = false;
+      orderedKeys.forEach(function (ph) {
+        const mapVal =
+          placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
+            ? placeholdersMap[ph]
+            : undefined;
+        const answerItems = answersByPlaceholder[ph] || [];
+        let primaryValue;
+        if (hasNonEmptyValue(mapVal)) {
+          primaryValue = mapVal;
+        }
+        answerItems.forEach(function (ans) {
+          const v =
+            ans.replacement !== undefined ? ans.replacement : ans.answer;
+          if (hasNonEmptyValue(v) && primaryValue === undefined) {
+            primaryValue = v;
           }
         });
-      } else {
-        md += '_No answers found in JSON._\\n\\n';
+        if (!hasNonEmptyValue(primaryValue)) {
+          return;
+        }
+        anyPrinted = true;
+        md += '## ' + ph + '\\n\\n';
+        const valueMarkdown = valueToMarkdown(primaryValue, 0);
+        md += (valueMarkdown && valueMarkdown.trim())
+          ? valueMarkdown + '\\n\\n'
+          : '_(empty)_\\n\\n';  // practically won't hit, because of hasNonEmptyValue
+        if (answerItems.length) {
+          const detailLines = [];
+          answerItems.forEach(function (ans) {
+            const q =
+              ans.question && ans.question !== ph
+                ? String(ans.question)
+                : '';
+            const where =
+              ans.where || ans.location || '';
+            if (!q && !where) return;
+            let line = '';
+            if (q) {
+              line += '- _' + q + '_';
+            }
+            if (where) {
+              line += (q ? ' – ' : '- ') + '**Location:** ' + where;
+            }
+            if (!line) return;
+            detailLines.push(line);
+          });
+          if (detailLines.length) {
+            md += 'Additional details:\\n';
+            detailLines.forEach(function (line) {
+              md += line + '\\n';
+            });
+            md += '\\n';
+          }
+        }
+      });
+      if (!anyPrinted) {
+        md += '_No placeholders with values found in JSON._\\n\\n';
       }
       if (questionsList.length) {
         md += '## Remaining questions\\n\\n';
