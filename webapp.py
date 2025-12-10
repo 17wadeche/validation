@@ -275,6 +275,7 @@ def index():
     draft_json_from_form: str = ""
     release_type: str = "initial"
     design_text: str = ""
+    fr_raw: str = "" 
     selected_template_name: str = stored_inputs.templates[0].name if stored_inputs.templates else ""
     defaults = {
         "base_url": MedtronicGPTClient.DEFAULT_BASE_URL,
@@ -358,6 +359,7 @@ def index():
                 release_type=release_type,
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
+                fr_raw=fr_raw,
             )
         if action == "remove_example":
             updated_examples = [
@@ -387,6 +389,7 @@ def index():
                 release_type=release_type,
                 selected_template_name=selected_template_name,
                 missing_placeholders=missing_placeholders,
+                fr_raw=fr_raw,
             )
         if action == "clear":
             prompt = None
@@ -424,6 +427,7 @@ def index():
                 missing_placeholders=missing_placeholders,
                 release_type=release_type,
                 selected_template_name=selected_template_name,
+                fr_raw=fr_raw,
           )
         (
             prompt,
@@ -753,6 +757,7 @@ def index():
         release_type=release_type,
         selected_template_name=selected_template_name,
         design_text=design_text,
+        fr_raw=fr_raw,
     )
 TEMPLATE = """
 <!doctype html>
@@ -1212,6 +1217,9 @@ TEMPLATE = """
               Markdown view
             </div>
             <button type="button" class="btn btn-primary" id="copyAll">Copy all</button>
+            <button type="button" class="btn btn-ghost" id="showFrRaw" {% if not fr_raw %}style="display:none;"{% endif %}>
+              FR raw JSON
+            </button>
           </div>
           <div id="jsonView" class="output" style="margin-top: 10px; white-space: pre-wrap;">{{ draft }}</div>
           <div
@@ -1311,6 +1319,69 @@ TEMPLATE = """
     >
       ↓ Bottom
     </button>
+    {% if fr_raw %}
+    <div
+      id="frRawModal"
+      style="
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15,23,42,0.45);
+        z-index: 70;
+        backdrop-filter: blur(3px);
+      "
+    >
+      <div
+        style="
+          background: #ffffff;
+          border-radius: 14px;
+          border: 1px solid rgba(15,23,42,0.12);
+          max-width: 720px;
+          width: 90%;
+          max-height: 70vh;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 24px 70px rgba(15,23,42,0.6);
+        "
+      >
+        <div
+          style="
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(148,163,184,0.35);
+            background: linear-gradient(120deg, rgba(37,99,235,0.08), rgba(15,23,42,0.02));
+          "
+        >
+          <div style="font-weight: 600; color:#0f172a; font-size:14px;">Functional requirements – raw model response</div>
+          <button
+            type="button"
+            id="frRawClose"
+            class="btn btn-ghost"
+            style="padding:6px 10px; font-size:13px;"
+          >
+            ✕
+          </button>
+        </div>
+        <div style="padding: 10px 14px;">
+          <pre
+            style="
+              margin: 0;
+              white-space: pre-wrap;
+              word-break: break-word;
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+              font-size: 12px;
+              max-height: 50vh;
+              overflow-y: auto;
+            "
+          >{{ fr_raw }}</pre>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
@@ -1585,6 +1656,24 @@ TEMPLATE = """
     const toggleFriendly = document.getElementById('viewToggleFriendly');
     const toggleMarkdown = document.getElementById('viewToggleMarkdown');
     const copyAll = document.getElementById('copyAll');
+    const showFrRawBtn = document.getElementById('showFrRaw');
+    const frRawModal = document.getElementById('frRawModal');
+    const frRawClose = document.getElementById('frRawClose');
+    if (showFrRawBtn && frRawModal) {
+      showFrRawBtn.addEventListener('click', () => {
+        frRawModal.style.display = 'flex';
+      });
+    }
+    if (frRawModal && frRawClose) {
+      frRawClose.addEventListener('click', () => {
+        frRawModal.style.display = 'none';
+      });
+      frRawModal.addEventListener('click', (event) => {
+        if (event.target === frRawModal) {
+          frRawModal.style.display = 'none';
+        }
+      });
+    }
     function rawDraftText() {
       if (rawDraft === null || rawDraft === undefined) return '';
       if (typeof rawDraft === 'string') return rawDraft;
