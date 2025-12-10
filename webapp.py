@@ -1571,27 +1571,117 @@ TEMPLATE = """
     function renderFriendly() {
       if (!friendlyView) return;
       const parsed = parseDraft();
-      if (!parsed) {
-        friendlyView.textContent = 'Could not parse JSON. Use the JSON view to copy manually.';
+      if (!parsed || typeof parsed !== 'object') {
+        friendlyView.textContent =
+          'Could not parse JSON. Use the JSON view to copy manually.';
         return;
       }
-      const answers = Array.isArray(parsed.answers) ? parsed.answers : [];
+      const placeholdersMap =
+        parsed.placeholders &&
+        typeof parsed.placeholders === 'object' &&
+        !Array.isArray(parsed.placeholders)
+          ? parsed.placeholders
+          : {};
+      const answersList = Array.isArray(parsed.answers) ? parsed.answers : [];
+      const questionsList = Array.isArray(parsed.questions) ? parsed.questions : [];
+      const answersByPlaceholder = {};
+      answersList.forEach((item) => {
+        if (!item || typeof item !== 'object') return;
+        const ph =
+          item.placeholder ||
+          item.token ||
+          (item.question && String(item.question).trim().length
+            ? item.question
+            : null);
+        if (!ph) return;
+        if (!answersByPlaceholder[ph]) answersByPlaceholder[ph] = [];
+        answersByPlaceholder[ph].push(item);
+      });
+      const keySet = new Set();
+      Object.keys(placeholdersMap || {}).forEach((k) => keySet.add(k));
+      Object.keys(answersByPlaceholder).forEach((k) => keySet.add(k));
+      const keys = Array.from(keySet);
+      keys.sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' })
+      );
       const sections = [];
-      if (answers.length) {
-        const list = answers
-          .map((item) => {
-            const placeholder = item.placeholder || item.question;
-            const value = item.replacement !== undefined ? item.replacement : item.answer;
-            if (!placeholder) return '';
-            return `<li><strong>${escapeHtml(placeholder)}</strong> → ${formatValue(value)}</li>`;
+      if (keys.length) {
+        const itemsHtml = keys
+          .map((ph) => {
+            const mapVal =
+              placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
+                ? placeholdersMap[ph]
+                : undefined;
+            const answerItems = answersByPlaceholder[ph] || [];
+            let primaryValue = undefined;
+            if (
+              mapVal !== undefined &&
+              mapVal !== null &&
+              String(mapVal).trim() !== ''
+            ) {
+              primaryValue = mapVal;
+            }
+            for (const ans of answerItems) {
+              const v =
+                ans.replacement !== undefined ? ans.replacement : ans.answer;
+              if (v !== undefined && v !== null && String(v).trim() !== '') {
+                if (primaryValue === undefined) {
+                  primaryValue = v;
+                }
+              }
+            }
+            const valueHtml = formatValue(primaryValue);
+            const details = [];
+            answerItems.forEach((ans) => {
+              const q =
+                ans.question && ans.question !== ph
+                  ? String(ans.question)
+                  : '';
+              const where =
+                ans.where || ans.location || '';
+              const pieces = [];
+              if (q) {
+                pieces.push('<em>' + escapeHtml(q) + '</em>');
+              }
+              if (where) {
+                pieces.push(
+                  '<span style="color:#64748b;">' + escapeHtml(where) + '</span>'
+                );
+              }
+              if (!pieces.length) return;
+              details.push('<li>' + pieces.join(' – ') + '</li>');
+            });
+            const detailsHtml = details.length
+              ? '<ul style="margin:4px 0 0 18px;">' + details.join('') + '</ul>'
+              : '';
+            return `
+              <li style="margin-bottom:6px;">
+                <div><strong>${escapeHtml(ph)}</strong> → ${valueHtml}</div>
+                ${detailsHtml}
+              </li>
+            `;
           })
-          .filter(Boolean)
           .join('');
-        if (list) {
-          sections.push(`<div style="margin-bottom: 10px;"><div class="pill" style="margin-bottom:6px;">Answers</div><ul>${list}</ul></div>`);
-        }
+        sections.push(
+          `<div style="margin-bottom: 10px;">
+            <div class="pill" style="margin-bottom:6px;">Placeholders &amp; values</div>
+            <ul>${itemsHtml}</ul>
+          </div>`
+        );
       }
-      friendlyView.innerHTML = sections.join('') || 'No parsed answers available.';
+      if (questionsList.length) {
+        const qList = questionsList
+          .map((q) => '<li>' + escapeHtml(q) + '</li>')
+          .join('');
+        sections.push(
+          `<div>
+            <div class="pill" style="margin-bottom:6px;">Open questions</div>
+            <ul>${qList}</ul>
+          </div>`
+        );
+      }
+      friendlyView.innerHTML =
+        sections.join('') || 'No parsed placeholders or answers available.';
     }
     function scalarToMarkdown(value) {
       if (value === null || value === undefined || value === '') {
@@ -1637,37 +1727,114 @@ TEMPLATE = """
     }
     function buildMarkdownFromDraft(parsed) {
       if (!parsed) {
-        return '# Answers\\n\\n_No data found in JSON._\\n';
+        return '# Answers\n\n_No data found in JSON._\n';
       }
-      var md = '# Answers\\n\\n';
-      var answers = Array.isArray(parsed.answers) ? parsed.answers : [];
-      if (answers.length) {
-        answers.forEach(function (item, idx) {
-          var placeholder = item.placeholder || item.question || ('Answer ' + (idx + 1));
-          var value =
-            item.replacement !== undefined
-              ? item.replacement
-              : item.answer !== undefined
-              ? item.answer
-              : '';
-          var valueMarkdown = valueToMarkdown(value, 0);
-          md += '## ' + placeholder + '\\n\\n';
-          if (valueMarkdown && valueMarkdown.trim()) {
-            md += valueMarkdown + '\\n\\n';
+      var placeholdersMap =
+        parsed.placeholders &&
+        typeof parsed.placeholders === 'object' &&
+        !Array.isArray(parsed.placeholders)
+          ? parsed.placeholders
+          : {};
+      var answersList = Array.isArray(parsed.answers) ? parsed.answers : [];
+      var questionsList = Array.isArray(parsed.questions) ? parsed.questions : [];
+      var answersByPlaceholder = {};
+      answersList.forEach(function (item) {
+        if (!item || typeof item !== 'object') return;
+        var ph =
+          item.placeholder ||
+          item.token ||
+          (item.question && String(item.question).trim().length
+            ? item.question
+            : null);
+        if (!ph) return;
+        if (!answersByPlaceholder[ph]) answersByPlaceholder[ph] = [];
+        answersByPlaceholder[ph].push(item);
+      });
+      var keySet = {};
+      Object.keys(placeholdersMap || {}).forEach(function (k) {
+        keySet[k] = true;
+      });
+      Object.keys(answersByPlaceholder).forEach(function (k) {
+        keySet[k] = true;
+      });
+      var keys = Object.keys(keySet);
+      keys.sort(function (a, b) {
+        return a.localeCompare(b, undefined, { sensitivity: 'base' });
+      });
+      var md = '# Answers\n\n';
+      if (keys.length) {
+        keys.forEach(function (ph, idx) {
+          var mapVal =
+            placeholdersMap && Object.prototype.hasOwnProperty.call(placeholdersMap, ph)
+              ? placeholdersMap[ph]
+              : undefined;
+          var answerItems = answersByPlaceholder[ph] || [];
+          var primaryValue = undefined;
+          if (
+            mapVal !== undefined &&
+            mapVal !== null &&
+            String(mapVal).trim() !== ''
+          ) {
+            primaryValue = mapVal;
+          }
+          answerItems.forEach(function (ans) {
+            var v =
+              ans.replacement !== undefined ? ans.replacement : ans.answer;
+            if (v !== undefined && v !== null && String(v).trim() !== '') {
+              if (primaryValue === undefined) {
+                primaryValue = v;
+              }
+            }
+          });
+          md += '## ' + ph + '\n\n';
+          if (primaryValue !== undefined) {
+            var valueMarkdown = valueToMarkdown(primaryValue, 0);
+            if (valueMarkdown && valueMarkdown.trim()) {
+              md += valueMarkdown + '\n\n';
+            } else {
+              md += '_(empty)_\n\n';
+            }
           } else {
-            md += '_(empty)_\\n\\n';
+            md += '_(empty)_\n\n';
+          }
+          if (answerItems.length) {
+            var detailLines = [];
+            answerItems.forEach(function (ans) {
+              var q =
+                ans.question && ans.question !== ph
+                  ? String(ans.question)
+                  : '';
+              var where =
+                ans.where || ans.location || '';
+              if (!q && !where) return;
+              var line = '';
+              if (q) {
+                line += '- _' + q + '_';
+              }
+              if (where) {
+                line += (q ? ' – ' : '- ') + '**Location:** ' + where;
+              }
+              if (!line) return;
+              detailLines.push(line);
+            });
+            if (detailLines.length) {
+              md += 'Additional details:\n';
+              detailLines.forEach(function (line) {
+                md += line + '\n';
+              });
+              md += '\n';
+            }
           }
         });
       } else {
-        md += '_No answers found in JSON._\\n\\n';
+        md += '_No answers found in JSON._\n\n';
       }
-      var questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-      if (questions.length) {
-        md += '## Remaining questions\\n\\n';
-        questions.forEach(function (q) {
-          md += '- ' + q + '\\n';
+      if (questionsList.length) {
+        md += '## Remaining questions\n\n';
+        questionsList.forEach(function (q) {
+          md += '- ' + q + '\n';
         });
-        md += '\\n';
+        md += '\n';
       }
       return md;
     }
