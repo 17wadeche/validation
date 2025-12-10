@@ -211,6 +211,7 @@ def build_functional_requirements_prompt(
     code_context: str,
     plan_context: str | None = None,
     release_type: str = "initial",
+    prior_json: str | None = None,  # NEW
 ) -> str:
     release_label = "initial release" if release_type == "initial" else "update / change request"
     sections: list[str] = [
@@ -218,13 +219,15 @@ def build_functional_requirements_prompt(
         "Your ONLY task in this call is to derive a complete, testable set of FUNCTIONAL requirements.",
         "",
         "Functional requirements = what the tool SHALL do:",
-        "- inputs, processing, outputs",
-        "- error handling and validation",
-        "- modes / workflows / options the user can choose",
+        "- inputs, processing, and outputs",
+        "- calculations, transformations, and data flows",
+        "- error handling and validation of inputs / data / configuration",
+        "- modes, workflows, and options the user can select",
+        "- configuration that directly affects behaviour of the tool",
         "- constraints that are directly testable on the tool’s behaviour.",
         "",
-        "Do NOT include non-functional requirements (performance, security, usability, etc.).",
-        "Do NOT repeat or restate quality system requirements or process steps.",
+        "Do NOT include non-functional requirements (performance, security, usability, documentation, process steps).",
+        "Do NOT repeat or restate quality-system or SOP requirements.",
         "",
         f"This is an {release_label}. Base the requirements on:",
         "- The validation template (especially the Functional Requirements section and any blue instructional text).",
@@ -256,11 +259,32 @@ def build_functional_requirements_prompt(
             "Use this to understand which sections/tokens exist, and which behaviours matter most.\n"
             + plan_context.strip()
         )
+    if prior_json and prior_json.strip():
+        sections.append(
+            "\n## Current mappings JSON\n"
+            "This JSON captures placeholders, answers, and questions from the main drafting step.\n"
+            "Use it to identify all behaviours that must be covered by functional requirements. "
+            "Every major behaviour described here should have at least one corresponding requirement.\n"
+            + prior_json.strip()
+        )
     sections.append(
         "\n## Program code / workbook / PBIX context\n"
         "Derive requirements from what the implementation actually does: inputs, transformations, outputs, "
-        "validation logic, and error handling.\n"
+        "validation logic, data model, report pages, visuals, and error handling.\n"
         + code_context.strip()
+    )
+
+    sections.append(
+        "\n## Coverage strategy (IMPORTANT)\n"
+        "Internally (you do not need to output this list), build a checklist of functional areas such as:\n"
+        "- Each user-facing workflow, screen, report page, or dashboard.\n"
+        "- Each major calculation, aggregation, or transformation.\n"
+        "- Each input file / table / data source and how it is validated.\n"
+        "- Each configuration option / parameter that changes behaviour.\n"
+        "- Each type of error condition or invalid input that is explicitly handled.\n"
+        "\nFor EACH item on that internal checklist, write one or more atomic, testable requirements.\n"
+        "Prefer several small requirements over one very broad one. Break behaviours into separate requirements when "
+        "they can be tested independently."
     )
     sections.append(
         "\n## Output format (IMPORTANT)\n"
@@ -271,11 +295,12 @@ def build_functional_requirements_prompt(
         "  {\"Unique Req ID\": \"F2\", \"Description\": \"...\", \"Release Implemented\": \"1.0\"}\n"
         "]\n"
         "\nRules:\n"
-        "- Each requirement must be atomic and testable.\n"
+        "- Each requirement must be atomic and directly testable (one main behaviour per requirement).\n"
         "- Use IDs F1, F2, F3, ... sequentially with no gaps.\n"
         "- If you are unsure of the exact release number, use \"1.0\" as a placeholder; the caller may override it.\n"
         "- Do NOT include commentary, explanations, or any keys other than: "
-        "\"Unique Req ID\", \"Description\", \"Release Implemented\"."
+        "\"Unique Req ID\", \"Description\", \"Release Implemented\".\n"
+        "- Do NOT fabricate behaviours; only include behaviour supported by the template, examples, JSON mappings, or code context."
     )
     return "\n\n".join(sections).strip() + "\n"
 def build_design_update_prompt(
