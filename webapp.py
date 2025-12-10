@@ -1727,7 +1727,7 @@ TEMPLATE = """
     }
     function buildMarkdownFromDraft(parsed) {
       if (!parsed) {
-        return '# Answers\n\n_No data found in JSON._\n';
+        return '# Answers\\n\\n_No data found in JSON._\\n';
       }
       var placeholdersMap =
         parsed.placeholders &&
@@ -1761,7 +1761,7 @@ TEMPLATE = """
       keys.sort(function (a, b) {
         return a.localeCompare(b, undefined, { sensitivity: 'base' });
       });
-      var md = '# Answers\n\n';
+      var md = '# Answers\\n\\n';
       if (keys.length) {
         keys.forEach(function (ph, idx) {
           var mapVal =
@@ -1786,16 +1786,16 @@ TEMPLATE = """
               }
             }
           });
-          md += '## ' + ph + '\n\n';
+          md += '## ' + ph + '\\n\\n';
           if (primaryValue !== undefined) {
             var valueMarkdown = valueToMarkdown(primaryValue, 0);
             if (valueMarkdown && valueMarkdown.trim()) {
-              md += valueMarkdown + '\n\n';
+              md += valueMarkdown + '\\n\\n';
             } else {
-              md += '_(empty)_\n\n';
+              md += '_(empty)_\\n\\n';
             }
           } else {
-            md += '_(empty)_\n\n';
+            md += '_(empty)_\\n\\n';
           }
           if (answerItems.length) {
             var detailLines = [];
@@ -1818,23 +1818,23 @@ TEMPLATE = """
               detailLines.push(line);
             });
             if (detailLines.length) {
-              md += 'Additional details:\n';
+              md += 'Additional details:\\n';
               detailLines.forEach(function (line) {
-                md += line + '\n';
+                md += line + '\\n';
               });
-              md += '\n';
+              md += '\\n';
             }
           }
         });
       } else {
-        md += '_No answers found in JSON._\n\n';
+        md += '_No answers found in JSON._\\n\\n';
       }
       if (questionsList.length) {
-        md += '## Remaining questions\n\n';
+        md += '## Remaining questions\\n\\n';
         questionsList.forEach(function (q) {
-          md += '- ' + q + '\n';
+          md += '- ' + q + '\\n';
         });
-        md += '\n';
+        md += '\\n';
       }
       return md;
     }
