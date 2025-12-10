@@ -605,12 +605,9 @@ def index():
                     if "<Functional Requirements>" in tokens:
                         try:
                             fr_prompt = build_functional_requirements_prompt(
-                                template_text or "",
-                                examples,
-                                code_context,
-                                plan_context=plan_text,
-                                release_type=release_type,
-                                prior_json=draft,
+                              prompt or "",
+                              code_context,
+                              plan_context=plan_text,
                             )
                             fr_raw = client.generate_completion(fr_prompt, model=model)
                             fr_data = json.loads(fr_raw)
