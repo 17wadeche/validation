@@ -11,10 +11,12 @@ import tempfile
 import os
 import logging
 import sys
+
+from flask import current_app
 logger = logging.getLogger(__name__)
 EXCEL_SUFFIXES = {".xlsm", ".xls", ".xlsx", ".xlsb"}
 def _run_pbitools_extract(pbix_path: Path) -> Path | None:
-    exe = os.getenv("PBI_TOOLS_EXE")
+    exe = current_app.config.get("POWER_BI_PATH") or os.getenv("PBI_TOOLS_EXE")
     if not exe and getattr(sys, "frozen", False):
         exe_candidate = Path(sys.executable).with_name("pbi-tools.exe")
         if exe_candidate.exists():

@@ -2165,3 +2165,6 @@ if __name__ == "__main__":
             pass
     threading.Thread(target=_open_browser, daemon=True).start()
     app.run(host=host, port=port, debug=False)
+    
+app.config["WSGI_HANDLER"] = "webapp.py"
+app.config["POWER_BI_PATH"] = "tools\pbi-tools.exe"
