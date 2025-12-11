@@ -4,8 +4,8 @@ import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List
-DEFAULT_INPUT_STORE = Path(__file__).resolve().parent / "inputs.json"
-DATA_ROOT = Path(__file__).resolve().parent / "user_data"
+BASE_DIR = Path(__file__).resolve().parents[1]
+DATA_ROOT = BASE_DIR / "user_data"
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
 def _inputs_path_for_user(user_id: str) -> Path:
     user_dir = DATA_ROOT / user_id
@@ -22,6 +22,7 @@ class StoredFile:
         return cls(name=name, b64=base64.b64encode(data).decode("utf-8"), suffix=suffix)
     def to_bytes(self) -> bytes:
         return base64.b64decode(self.b64)
+
 @dataclass
 class SavedInputs:
     templates: List[StoredFile] = field(default_factory=list)
