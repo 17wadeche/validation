@@ -1,16 +1,12 @@
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import json
-
 DATA_ROOT = Path(__file__).resolve().parent / "user_data"
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
-
 def _creds_path_for_user(user_id: str) -> Path:
     user_dir = DATA_ROOT / user_id
     user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir / "credentials.json"
-
-
 @dataclass
 class StoredCredentials:
     subscription_key: str = ""

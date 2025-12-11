@@ -37,7 +37,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "123")
 USERNAME_SANITIZER = re.compile(r"[^a-zA-Z0-9_.-]+")
 def _get_current_user_id():
     raw = (
