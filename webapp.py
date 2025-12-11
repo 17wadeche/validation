@@ -1178,15 +1178,10 @@ TEMPLATE = """
                   <option value="gpt-4o-mini" {% if current_model == 'gpt-4o-mini' %}selected{% endif %}>gpt-4o-mini</option>
                   <option value="gpt-4o" {% if current_model == 'gpt-4o' %}selected{% endif %}>gpt-4o</option>
                   <option value="anthropic.claude-3-5-sonnet-20241022-v2:0" {% if current_model == 'anthropic.claude-3-5-sonnet-20241022-v2:0' %}selected{% endif %}>anthropic.claude-3-5-sonnet-20241022-v2:0</option>
-                  <option value="anthropic.claude-3-7-sonnet-20250219-v1:0" {% if current_model == 'anthropic.claude-3-7-sonnet-20250219-v1:0' %}selected{% endif %}>anthropic.claude-3-7-sonnet-20250219-v1:0</option>
                   <option value="claude-sonnet-3-7" {% if current_model == 'claude-sonnet-3-7' %}selected{% endif %}>claude-sonnet-3-7</option>
-                  <option value="anthropic.claude-sonnet-4-20250514-v1:0" {% if current_model == 'anthropic.claude-sonnet-4-20250514-v1:0' %}selected{% endif %}>anthropic.claude-sonnet-4-20250514-v1:0</option>
                   <option value="claude-sonnet-4" {% if current_model == 'claude-sonnet-4' %}selected{% endif %}>claude-sonnet-4</option>
-                  <option value="deepseek.r1-v1:0" {% if current_model == 'deepseek.r1-v1:0' %}selected{% endif %}>deepseek.r1-v1:0</option>
                   <option value="deepseek-r1" {% if current_model == 'deepseek-r1' %}selected{% endif %}>deepseek-r1</option>
                   <option value="pixtral-large-2502" {% if current_model == 'pixtral-large-2502' %}selected{% endif %}>pixtral-large-2502</option>
-                  <option value="mistral.pixtral-large-2502-v1:0" {% if current_model == 'mistral.pixtral-large-2502-v1:0' %}selected{% endif %}>mistral.pixtral-large-2502-v1:0</option>
-                  <option value="meta.llama4-maverick-17b-instruct-v1:0" {% if current_model == 'meta.llama4-maverick-17b-instruct-v1:0' %}selected{% endif %}>meta.llama4-maverick-17b-instruct-v1:0</option>
                   <option value="llama-maverick-17b-instruct" {% if current_model == 'llama-maverick-17b-instruct' %}selected{% endif %}>llama-maverick-17b-instruct</option>
                 </select>
               </div>
