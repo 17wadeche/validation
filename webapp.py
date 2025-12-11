@@ -776,26 +776,26 @@ def index():
                     error = error or str(exc)
             elif missing_placeholders and not client:
                 coverage_note = "Provide MedtronicGPT credentials to auto-fill the remaining placeholders."
-                if (
-                  not error
-                  and client
-                  and template_text
-                  and draft  # use the latest JSON after coverage/update prompts
-                  and action in {"build", "refine", "answers"}
-              ):
-                  draft, fr_raw_latest = _apply_functional_requirements_enrichment(
-                      draft=draft,
-                      template_text=template_text,
-                      prompt=prompt,
-                      code_context=code_context_text,
-                      plan_context=plan_text,
-                      client=client,
-                      model=model,
-                  )
-                  if fr_raw_latest:
-                      fr_raw = fr_raw_latest
-                  draft_json_from_form = draft
-                  draft_questions = _extract_questions_from_json(draft)
+        if (
+          not error
+          and client
+          and template_text
+          and draft  # use the latest JSON after coverage/update prompts
+          and action in {"build", "refine", "answers"}
+      ):
+          draft, fr_raw_latest = _apply_functional_requirements_enrichment(
+              draft=draft,
+              template_text=template_text,
+              prompt=prompt,
+              code_context=code_context_text,
+              plan_context=plan_text,
+              client=client,
+              model=model,
+          )
+          if fr_raw_latest:
+              fr_raw = fr_raw_latest
+          draft_json_from_form = draft
+          draft_questions = _extract_questions_from_json(draft)
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
