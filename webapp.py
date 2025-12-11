@@ -29,6 +29,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import os
+BASE_DIR = Path(__file__).resolve().parent
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -48,10 +51,8 @@ def _get_current_user_id():
         abort(401, description="User not authenticated")
     return raw.split("\\")[-1]
 if not app.debug:
-    if not os.path.exists("logs"):
-        os.mkdir("logs")
     file_handler = RotatingFileHandler(
-        "logs/error_log.log", maxBytes=10240, backupCount=10
+        LOG_DIR / "error_log.log", maxBytes=10240, backupCount=10
     )
     file_handler.setFormatter(
         logging.Formatter(
@@ -61,8 +62,8 @@ if not app.debug:
     file_handler.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
     app.logger.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
     app.logger.addHandler(file_handler)
-    sys.stdout = open("logs/stdout.log", "a")
-    sys.stderr = open("logs/stderr.log", "a")
+    sys.stdout = open(LOG_DIR / "stdout.log", "a", buffering=1, encoding="utf-8")
+    sys.stderr = open(LOG_DIR / "stderr.log", "a", buffering=1, encoding="utf-8")
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:
         return None, None, None, None

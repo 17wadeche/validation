@@ -26,7 +26,7 @@ setlocal
 :: Example: set REMOTE_SERVER_PATH="\\MyServer\C$\inetpub\wwwroot\my-flask-app"
 :: Make sure to include the double quotes if the path has spaces.
 :: ====================================================================
-set "REMOTE_SERVER_PATH=\\hcwda30449e\Validation-Tool
+set "REMOTE_SERVER_PATH=\\hcwda30449e\Validation-Tool"
 
 :: --- SCRIPT STARTS HERE ---
 
