@@ -11,6 +11,7 @@ from pathlib import Path
 APP_DIR_NAME = "MedtronicValidationTool"
 LATEST_URL = "https://your-server/validation-ui/latest.json"  # <-- change
 APP_EXE_BASENAME = "validation-ui.exe"  # what we call it locally
+PBI_TOOLS_BASENAME = "pbi-tools.exe"
 def _get_app_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
     return Path(base) / APP_DIR_NAME
@@ -48,7 +49,7 @@ def _fetch_latest_info() -> dict | None:
         return None
 def _version_newer(v1: str, v2: str) -> bool:
     def parse(v: str):
-        return [int(p) for p in v.split(".") if p.isdigit()]
+        return [int(p) for p in v.split(".") if v and p.isdigit()]
     return parse(v1) > parse(v2)
 def ensure_latest(app_dir: Path) -> Path:
     app_dir.mkdir(parents=True, exist_ok=True)
@@ -60,13 +61,17 @@ def ensure_latest(app_dir: Path) -> Path:
     remote_version = str(info["version"]).strip()
     url = str(info["url"]).strip()
     expected_sha = str(info.get("sha256", "")).strip().lower()
-    needs_update = not exe_path.exists() or not local_version or _version_newer(remote_version, local_version)
+    needs_update = (
+        not exe_path.exists()
+        or not local_version
+        or _version_newer(remote_version, local_version)
+    )
     if not needs_update:
         return exe_path
     try:
         downloaded = _download(url)
     except Exception:
-        return exe_path if exe_path.exists() else downloaded
+        return exe_path
     if expected_sha:
         actual_sha = _sha256(downloaded).lower()
         if actual_sha != expected_sha:
@@ -79,14 +84,42 @@ def ensure_latest(app_dir: Path) -> Path:
     except Exception:
         return exe_path if exe_path.exists() else downloaded
     return exe_path
+def ensure_pbi_tools(app_dir: Path) -> None:
+    target = app_dir / PBI_TOOLS_BASENAME
+    if target.exists():
+        return  # already there
+    info = _fetch_latest_info()
+    if not info:
+        return
+    url = str(info.get("pbi_tools_url", "")).strip()
+    if not url:
+        return  # not configured
+    try:
+        downloaded = _download(url)
+    except Exception:
+        return
+    expected_sha = str(info.get("pbi_tools_sha256", "")).strip().lower()
+    if expected_sha:
+        actual_sha = _sha256(downloaded).lower()
+        if actual_sha != expected_sha:
+            return
+    try:
+        if target.exists():
+            target.unlink()
+        downloaded.rename(target)
+    except Exception:
+        return
 def main() -> None:
     app_dir = _get_app_dir()
     exe_path = ensure_latest(app_dir)
+    ensure_pbi_tools(app_dir)
     if not exe_path.exists():
         import tkinter.messagebox as mbox
-        mbox.showerror("Medtronic Validation Tool",
-                       "Could not download or locate the validation app.\n"
-                       "Please contact support.")
+        mbox.showerror(
+            "Medtronic Validation Tool",
+            "Could not download or locate the validation app.\n"
+            "Please contact support."
+        )
         sys.exit(1)
     args = [str(exe_path)] + sys.argv[1:]
     subprocess.Popen(args, cwd=str(app_dir))
