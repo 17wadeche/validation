@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List
-DEFAULT_INPUT_STORE = Path.home() / ".validation_agent" / "inputs.json"
+DEFAULT_INPUT_STORE = Path(__file__).resolve().parent / "inputs.json"
 @dataclass
 class StoredFile:
     name: str

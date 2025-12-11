@@ -4,8 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 from flask import Flask, render_template_string, request
-from src.validation_agent import __version__ as APP_VERSION
-from src.validation_agent.prompt_builder import (
+from validation_agent.prompt_builder import (
     Example,
     build_planning_prompt,
     build_prompt,
@@ -14,23 +13,46 @@ from src.validation_agent.prompt_builder import (
     build_design_update_prompt,
     build_functional_requirements_prompt,
 )
-from src.validation_agent.document_loader import load_text_document
-from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
-from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
-from src.validation_agent.storage import (
+from validation_agent.document_loader import load_text_document
+from validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
+from validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
+from validation_agent.storage import (
     SavedInputs,
     StoredFile,
     load_saved_inputs,
     save_inputs,
 )
-from src.validation_agent.workbook_loader import extract_excel_context, extract_pbix_context
+from validation_agent.workbook_loader import extract_excel_context, extract_pbix_context
 import tempfile
 import logging
+from logging.handlers import RotatingFileHandler
+import sys
+import os
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 app = Flask(__name__)
+# Setting up logging prints and logs to a file during deployment
+if not app.debug:
+    if not os.path.exists("logs"):
+        os.mkdir("logs")
+    file_handler = RotatingFileHandler(
+        "logs/error_log.log", maxBytes=10240, backupCount=10
+    )
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]"
+        )
+    )
+    file_handler.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
+    app.logger.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
+    app.logger.addHandler(file_handler)
+
+    # Redirect stdout and stderr to the log file
+    sys.stdout = open("logs/stdout.log", "a")
+    sys.stderr = open("logs/stderr.log", "a")
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:
         return None, None, None, None
@@ -2167,4 +2189,4 @@ if __name__ == "__main__":
     app.run(host=host, port=port, debug=False)
     
 app.config["WSGI_HANDLER"] = "webapp.py"
-app.config["POWER_BI_PATH"] = "tools\pbi-tools.exe"
+app.config["POWER_BI_PATH"] = "tools\\pbi-tools.exe"

@@ -1,8 +1,13 @@
+
 from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-DEFAULT_STORE = Path.home() / ".validation_agent" / "credentials.json"
+
+# Store credentials.json next to this script file
+DEFAULT_STORE = Path(__file__).resolve().parent / "credentials.json"
+
+
 @dataclass
 class StoredCredentials:
     subscription_key: str = ""
@@ -12,6 +17,8 @@ class StoredCredentials:
     base_url: str = "https://api.gpt.medtronic.com"
     path_template: str = "/models/{model}"
     model: str = "gpt-41"
+
+
 def load_credentials(store: Path = DEFAULT_STORE) -> StoredCredentials:
     if not store.exists():
         return StoredCredentials()
@@ -19,7 +26,10 @@ def load_credentials(store: Path = DEFAULT_STORE) -> StoredCredentials:
         data = json.loads(store.read_text(encoding="utf-8"))
         return StoredCredentials(**data)
     except Exception:
+        # If the file is malformed or unreadable, return defaults
         return StoredCredentials()
+
+
 def save_credentials(creds: StoredCredentials, store: Path = DEFAULT_STORE) -> None:
     store.parent.mkdir(parents=True, exist_ok=True)
     store.write_text(json.dumps(asdict(creds), indent=2), encoding="utf-8")
