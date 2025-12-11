@@ -3,7 +3,7 @@ import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
-from flask import Flask, render_template_string, request, g, abort
+from flask import Flask, current_app, render_template_string, request, g, abort
 import re
 from validation_agent.prompt_builder import (
     Example,
@@ -29,7 +29,6 @@ import logging
 from logging.handlers import RotatingFileHandler
 import sys
 import os
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -37,19 +36,17 @@ logging.basicConfig(
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 USERNAME_SANITIZER = re.compile(r"[^a-zA-Z0-9_.-]+")
-def _get_current_user_id() -> str:
+def _get_current_user_id():
     raw = (
-        request.environ.get("REMOTE_USER")
-        or request.headers.get("X-Authenticated-User")
-        or request.headers.get("X-MS-CLIENT-PRINCIPAL-NAME")
-        or request.headers.get("X-User-Principal-Name")
+        request.headers.get("X-Windows-User")
+        or request.environ.get("REMOTE_USER")
+        or request.environ.get("LOGON_USER")
     )
     if not raw:
-        abort(401, "User not authenticated")
-    if "\\" in raw:
-        raw = raw.split("\\", 1)[1]
-    user_id = USERNAME_SANITIZER.sub("_", raw.strip().lower())
-    return user_id or "unknown"
+        if current_app.config.get("DEV_AUTH_BYPASS") or os.getenv("DEV_AUTH_BYPASS") == "1":
+            return "localdev"
+        abort(401, description="User not authenticated")
+    return raw.split("\\")[-1]
 if not app.debug:
     if not os.path.exists("logs"):
         os.mkdir("logs")
@@ -64,8 +61,6 @@ if not app.debug:
     file_handler.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
     app.logger.setLevel(app.config.get("LOG_LEVEL", logging.INFO))
     app.logger.addHandler(file_handler)
-
-    # Redirect stdout and stderr to the log file
     sys.stdout = open("logs/stdout.log", "a")
     sys.stderr = open("logs/stderr.log", "a")
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
@@ -2185,6 +2180,7 @@ if __name__ == "__main__":
     import threading
     import time
     import webbrowser
+    app.config["DEV_AUTH_BYPASS"] = True
     def _find_open_port(host: str, preferred: int) -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
