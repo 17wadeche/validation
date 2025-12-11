@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 from flask import Flask, render_template_string, request
+from src.validation_agent import __version__ as APP_VERSION
 from src.validation_agent.prompt_builder import (
     Example,
     build_planning_prompt,

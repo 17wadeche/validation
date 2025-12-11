@@ -2515,7 +2515,7 @@
   ('socketserver',
    'C:\\Users\\wadec8\\AppData\\Local\\Programs\\Python\\Python3\\Lib\\socketserver.py',
    'PYMODULE'),
-  ('src', 'C:\\validation\\src\\__init__.py', 'PYMODULE'),
+  ('src', '-', 'PYMODULE'),
   ('src.validation_agent',
    'C:\\validation\\src\\validation_agent\\__init__.py',
    'PYMODULE'),

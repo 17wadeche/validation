@@ -1,9 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-
-
+block_cipher = None
 a = Analysis(
     ['C:\\validation\\webapp.py'],
-    pathex=[],
+    pathex=['.'],
     binaries=[],
     datas=[('C:\\validation\\src', 'src')],
     hiddenimports=[],
