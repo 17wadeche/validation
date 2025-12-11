@@ -3,7 +3,8 @@ import json
 import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, g, abort
+import re
 from validation_agent.prompt_builder import (
     Example,
     build_planning_prompt,
@@ -34,7 +35,21 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 app = Flask(__name__)
-# Setting up logging prints and logs to a file during deployment
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
+USERNAME_SANITIZER = re.compile(r"[^a-zA-Z0-9_.-]+")
+def _get_current_user_id() -> str:
+    raw = (
+        request.environ.get("REMOTE_USER")
+        or request.headers.get("X-Authenticated-User")
+        or request.headers.get("X-MS-CLIENT-PRINCIPAL-NAME")
+        or request.headers.get("X-User-Principal-Name")
+    )
+    if not raw:
+        abort(401, "User not authenticated")
+    if "\\" in raw:
+        raw = raw.split("\\", 1)[1]
+    user_id = USERNAME_SANITIZER.sub("_", raw.strip().lower())
+    return user_id or "unknown"
 if not app.debug:
     if not os.path.exists("logs"):
         os.mkdir("logs")
@@ -114,6 +129,9 @@ def _extract_questions_from_json(payload: str) -> List[str]:
             if isinstance(value, list):
                 questions.extend(str(item).strip() for item in value if str(item).strip())
     return questions
+@app.before_request
+def attach_user():
+    g.user_id = _get_current_user_id()
 def _gather_examples(
     uploaded_files,
     saved_examples: List[StoredFile],
@@ -379,6 +397,9 @@ def _build_prompt_from_request(
 @app.route("/", methods=["GET", "POST"])
 def index():
     app.logger.info("index() called, method=%s", request.method)
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        abort(401, "User not authenticated")
     prompt: Optional[str] = None
     draft: Optional[str] = None
     error: Optional[str] = None
@@ -392,7 +413,7 @@ def index():
     template_text: str = ""
     missing_placeholders: List[str] = []
     coverage_note: Optional[str] = None
-    stored_inputs: SavedInputs = load_saved_inputs()
+    stored_inputs: SavedInputs = load_saved_inputs(user_id)
     persisted_inputs: SavedInputs = stored_inputs
     draft_json_from_form: str = ""
     release_type: str = "initial"
@@ -405,7 +426,7 @@ def index():
         "path_template": MedtronicGPTClient.DEFAULT_PATH_TEMPLATE,
         "model": "gpt-41",
     }
-    stored = load_credentials()
+    stored = load_credentials(user_id)
     defaults.update(
         {
             "base_url": stored.base_url or defaults["base_url"],
@@ -458,7 +479,7 @@ def index():
                 tmpl for tmpl in stored_inputs.templates if tmpl.name != remove_template_name
             ]
             persisted_inputs = SavedInputs(templates=updated_templates, examples=stored_inputs.examples)
-            save_inputs(persisted_inputs)
+            save_inputs(persisted_inputs, user_id)
             stored_inputs = persisted_inputs
             selected_template_name = updated_templates[0].name if updated_templates else ""
             draft = draft_json_from_form or draft
@@ -488,7 +509,7 @@ def index():
                 ex for ex in stored_inputs.examples if ex.name != remove_example_name
             ]
             persisted_inputs = SavedInputs(templates=stored_inputs.templates, examples=updated_examples)
-            save_inputs(persisted_inputs)
+            save_inputs(persisted_inputs, user_id)
             stored_inputs = persisted_inputs
             kept_saved_examples = updated_examples
             draft = draft_json_from_form or draft
@@ -596,7 +617,7 @@ def index():
                     path_template=request.form.get("path_template", "").strip() or defaults["path_template"],
                     model=model,
                 )
-                save_credentials(stored)
+                save_credentials(stored, user_id)
         if action in {"answers", "refine"}:
             answered = []
             for key, value in request.form.items():
@@ -754,7 +775,7 @@ def index():
         )
         if not selected_template_name and persisted_inputs.templates:
             selected_template_name = persisted_inputs.templates[0].name
-        save_inputs(persisted_inputs)
+        save_inputs(persisted_inputs, user_id)
         if client and client.last_refresh and remember_credentials:
             stored = StoredCredentials(
                 subscription_key=client.subscription_key,
@@ -765,7 +786,7 @@ def index():
                 path_template=client.path_template,
                 model=model,
             )
-            save_credentials(stored)
+            save_credentials(stored, user_id)
         coverage_note = None
         missing_placeholders: List[str] = []
         coverage_source = draft or draft_json_from_form

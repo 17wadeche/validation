@@ -68,8 +68,8 @@ echo.
 ::  /XD data          :: Exclude the data folder.
 
 robocopy "%SOURCE_PATH%" "%REMOTE_SERVER_PATH%" /E /PURGE /R:3 /W:5 ^
-/XF "*.tmp" "*.bat" "*~" "~*" ".gitignore" "Readme.md" "launcher.spec" "launcher.py" "validation-ui.spec" ^
-/XD ".venv" "__pycache__" ".vscode" "logs" ".git" "build" "dist" "installer" "packaging"
+/XF "*.tmp" "*.bat" "*~" "~*" ".gitignore" "Readme.md" "launcher.spec" "launcher.py" "validation-ui.spec" "credentials.json" "input.json" "inputs.json" ^
+/XD ".venv" "__pycache__" ".vscode" "logs" ".git" "build" "dist" "installer" "packaging" "logs" "venv"
 
 :: Check the exit code of robocopy to see if it was successful
 if %errorlevel% leq 8 (

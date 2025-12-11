@@ -1,11 +1,14 @@
-
-from __future__ import annotations
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
+import json
 
-# Store credentials.json next to this script file
-DEFAULT_STORE = Path(__file__).resolve().parent / "credentials.json"
+DATA_ROOT = Path(__file__).resolve().parent / "user_data"
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
+
+def _creds_path_for_user(user_id: str) -> Path:
+    user_dir = DATA_ROOT / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir / "credentials.json"
 
 
 @dataclass
@@ -13,23 +16,21 @@ class StoredCredentials:
     subscription_key: str = ""
     api_token: str = ""
     refresh_token: str = ""
-    api_version: str = "3.0"
-    base_url: str = "https://api.gpt.medtronic.com"
-    path_template: str = "/models/{model}"
-    model: str = "gpt-41"
-
-
-def load_credentials(store: Path = DEFAULT_STORE) -> StoredCredentials:
-    if not store.exists():
+    api_version: str = ""
+    base_url: str = ""
+    path_template: str = ""
+    model: str = ""
+def load_credentials(user_id: str) -> StoredCredentials:
+    path = _creds_path_for_user(user_id)
+    if not path.exists():
         return StoredCredentials()
     try:
-        data = json.loads(store.read_text(encoding="utf-8"))
-        return StoredCredentials(**data)
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        # If the file is malformed or unreadable, return defaults
         return StoredCredentials()
+    return StoredCredentials(**data)
+def save_credentials(creds: StoredCredentials, user_id: str) -> None:
+    path = _creds_path_for_user(user_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(creds), indent=2), encoding="utf-8")
 
-
-def save_credentials(creds: StoredCredentials, store: Path = DEFAULT_STORE) -> None:
-    store.parent.mkdir(parents=True, exist_ok=True)
-    store.write_text(json.dumps(asdict(creds), indent=2), encoding="utf-8")

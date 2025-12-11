@@ -5,6 +5,12 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import List
 DEFAULT_INPUT_STORE = Path(__file__).resolve().parent / "inputs.json"
+DATA_ROOT = Path(__file__).resolve().parent / "user_data"
+DATA_ROOT.mkdir(parents=True, exist_ok=True)
+def _inputs_path_for_user(user_id: str) -> Path:
+    user_dir = DATA_ROOT / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir / "inputs.json"
 @dataclass
 class StoredFile:
     name: str
@@ -20,7 +26,8 @@ class StoredFile:
 class SavedInputs:
     templates: List[StoredFile] = field(default_factory=list)
     examples: List[StoredFile] = field(default_factory=list)
-def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
+def load_saved_inputs(user_id: str) -> SavedInputs:
+    store = _inputs_path_for_user(user_id)
     if not store.exists():
         return SavedInputs()
     try:
@@ -49,7 +56,8 @@ def load_saved_inputs(store: Path = DEFAULT_INPUT_STORE) -> SavedInputs:
         return SavedInputs(templates=templates, examples=examples)
     except Exception:
         return SavedInputs()
-def save_inputs(saved: SavedInputs, store: Path = DEFAULT_INPUT_STORE) -> None:
+def save_inputs(saved: SavedInputs, user_id: str) -> None:
+    store = _inputs_path_for_user(user_id)
     store.parent.mkdir(parents=True, exist_ok=True)
     payload = asdict(saved)
     store.write_text(json.dumps(payload, indent=2), encoding="utf-8")
