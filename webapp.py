@@ -556,16 +556,24 @@ def index():
           easy_view = request.form.get("easy_view", "")
           markdown_view = request.form.get("markdown_view", "")
           feedback_model = request.form.get("model", "").strip() or defaults["model"]
-          log_event(
-              "ui_feedback",
-              user_name=user_name,
-              model=feedback_model,
-              feedback_text=feedback_text,
-              draft_json=feedback_draft,
-              easy_view=easy_view,
-              markdown_view=markdown_view,
-              release_type=request.form.get("release_type", release_type),
-          )
+          try:
+              log_event(
+                  "ui_feedback",
+                  user_name=user_name,
+                  app_version=APP_VERSION,
+                  action="feedback",
+                  model=feedback_model,
+                  success=True,
+                  payload={
+                      "feedback_text": feedback_text,
+                      "draft_json": feedback_draft,
+                      "easy_view": easy_view,
+                      "markdown_view": markdown_view,
+                      "release_type": request.form.get("release_type", release_type),
+                  },
+              )
+          except Exception as e:
+              app.logger.exception("Feedback telemetry failed: %s", e)
           draft = feedback_draft or draft_json_from_form or draft
           draft_json_from_form = draft or ""
           draft_questions = _extract_questions_from_json(draft) if draft else []
@@ -872,25 +880,30 @@ def index():
             final_action = request.form.get("action", "build")
             if final_action in {"build", "refine", "chat", "answers"}:
                 run_success = (error is None or str(error).strip() == "")
+                user_name = request.form.get("user_name", "").strip() or "unknown"
                 log_event(
                     "ui_run",
-                    run_id=run_id,
-                    started_ms=run_started_ms,
+                    user_name=user_name,
+                    app_version=APP_VERSION,
                     action=final_action,
-                    release_type=release_type,
-                    model=(request.form.get("model", "").strip() or defaults.get("model")),
-                    template_name=selected_template_name,
-                    has_plan=bool((plan_text or "").strip()),
-                    has_draft=bool((draft_json_from_form or "").strip()),
-                    draft_questions_count=len(draft_questions or []),
-                    missing_placeholders_count=len(missing_placeholders or []),
-                    examples_count=len(persisted_inputs.examples) if persisted_inputs else None,
-                    timings_ms=timings,
+                    model=(request.form.get("model", "").strip() or defaults.get("model") or ""),
                     success=run_success,
                     error=str(error) if error else "",
+                    payload={
+                        "run_id": run_id,
+                        "started_ms": run_started_ms,
+                        "release_type": release_type,
+                        "template_name": selected_template_name,
+                        "has_plan": bool((plan_text or "").strip()),
+                        "has_draft": bool((draft_json_from_form or "").strip()),
+                        "draft_questions_count": len(draft_questions or []),
+                        "missing_placeholders_count": len(missing_placeholders or []),
+                        "examples_count": len(persisted_inputs.examples) if persisted_inputs else None,
+                        "timings_ms": timings,
+                    },
                 )
     except Exception:
-        pass
+        app.logger.exception("ui_run telemetry failed")
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
