@@ -14,6 +14,7 @@ from src.validation_agent.prompt_builder import (
     build_design_update_prompt,
     build_functional_requirements_prompt,
 )
+from src.validation_agent.telemetry import log_event, Timer
 from src.validation_agent.document_loader import load_text_document
 from src.validation_agent.medtronic_client import MedtronicGPTClient, MedtronicGPTError
 from src.validation_agent.credentials import StoredCredentials, load_credentials, save_credentials
@@ -26,11 +27,21 @@ from src.validation_agent.storage import (
 from src.validation_agent.workbook_loader import extract_excel_context, extract_pbix_context
 import tempfile
 import logging
+import time
+import uuid
+from contextlib import contextmanager
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 app = Flask(__name__)
+@contextmanager
+def _timed(timings: dict, name: str):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        timings[name] = round((time.perf_counter() - start) * 1000, 2)
 def _read_upload(file_storage) -> Tuple[Optional[str], Optional[bytes], Optional[str], Optional[str]]:
     if not file_storage:
         return None, None, None, None
@@ -393,6 +404,12 @@ def index():
         }
     )
     if request.method == "POST":
+        run_id = uuid.uuid4().hex
+        timings: dict[str, float] = {}
+        run_started_ms = round(time.time() * 1000)
+        run_action = request.form.get("action", "build")
+        run_error: Optional[str] = None
+        run_success = False
         draft_json_from_form = request.form.get("draft_json", "")
         remove_template_name = request.form.get("remove_template", "").strip()
         remove_example_name = request.form.get("remove_example", "").strip()
@@ -452,6 +469,7 @@ def index():
                 saved_inputs=persisted_inputs,
                 plan_text=plan_text,
                 draft_questions=draft_questions,
+                app_version=APP_VERSION,
                 draft_json=draft_json_from_form,
                 code_context=code_context_text,
                 code_context_old=code_context_old_text,
@@ -473,6 +491,7 @@ def index():
             draft_questions = _extract_questions_from_json(draft) if draft else []
             return render_template_string(
                 TEMPLATE,
+                app_version=APP_VERSION,
                 prompt=prompt,
                 draft=draft,
                 error=error,
@@ -512,6 +531,7 @@ def index():
                 prompt=prompt,
                 draft=draft,
                 error=error,
+                app_version=APP_VERSION,
                 defaults=defaults,
                 history=history,
                 stored=stored,
@@ -529,22 +549,67 @@ def index():
                 selected_template_name=selected_template_name,
                 fr_raw=fr_raw,
           )
-        (
-            prompt,
-            template_bytes,
-            stored_template,
-            stored_examples,
-            template_text,
-            examples,
-            code_context,
-        ) = _build_prompt_from_request(
-            request.form,
-            request.files,
-            selected_template_file,
-            kept_saved_examples,
-            plan_text,
-            release_type,
-        )
+        if action == "feedback":
+          user_name = request.form.get("user_name", "").strip()
+          feedback_text = request.form.get("feedback_text", "").strip()
+          feedback_draft = request.form.get("draft_json", "").strip()
+          easy_view = request.form.get("easy_view", "")
+          markdown_view = request.form.get("markdown_view", "")
+          feedback_model = request.form.get("model", "").strip() or defaults["model"]
+          log_event(
+              "ui_feedback",
+              user_name=user_name,
+              model=feedback_model,
+              feedback_text=feedback_text,
+              draft_json=feedback_draft,
+              easy_view=easy_view,
+              markdown_view=markdown_view,
+              release_type=request.form.get("release_type", release_type),
+          )
+          draft = feedback_draft or draft_json_from_form or draft
+          draft_json_from_form = draft or ""
+          draft_questions = _extract_questions_from_json(draft) if draft else []
+          return render_template_string(
+              TEMPLATE,
+              prompt=prompt,
+              draft=draft,
+              app_version=APP_VERSION,
+              error=error,
+              defaults=defaults,
+              history=history,
+              stored=stored,
+              saved_inputs=persisted_inputs,
+              plan_text=plan_text,
+              draft_questions=draft_questions,
+              code_context=code_context_text,
+              code_context_old=code_context_old_text,
+              code_context_new=code_context_new_text,
+              draft_json=draft_json_from_form,
+              coverage_note=coverage_note,
+              template_text=template_text,
+              missing_placeholders=missing_placeholders,
+              release_type=release_type,
+              selected_template_name=selected_template_name,
+              design_text=design_text,
+              fr_raw=fr_raw,
+          )
+        with _timed(timings, "gather_inputs_ms"):
+            (
+                prompt,
+                template_bytes,
+                stored_template,
+                stored_examples,
+                template_text,
+                examples,
+                code_context,
+            ) = _build_prompt_from_request(
+                request.form,
+                request.files,
+                selected_template_file,
+                kept_saved_examples,
+                plan_text,
+                release_type,
+            )
         if stored_template:
             selected_template_name = stored_template.name
         code_context_text = code_context
@@ -631,7 +696,8 @@ def index():
                                 missing_tokens=missing_for_update,
                             )
                             try:
-                                draft = client.generate_completion(update_prompt, model=model)
+                                with _timed(timings, "coverage_fill_completion_ms"):
+                                  draft = client.generate_completion(update_prompt, model=model)
                                 draft_questions = _extract_questions_from_json(draft)
                             except MedtronicGPTError as exc:
                                 error = str(exc)
@@ -668,7 +734,8 @@ def index():
                     )
                 full_history += history
                 try:
-                    reply = client.generate_completion(model=model, messages=full_history)
+                    with _timed(timings, "chat_completion_ms"):
+                        reply = client.generate_completion(model=model, messages=full_history)
                     history.append({"role": "assistant", "content": reply})
                 except MedtronicGPTError as exc:
                     error = str(exc)
@@ -680,7 +747,8 @@ def index():
                     template_text or "", examples, code_context, release_type=release_type
                 )
                 try:
-                    plan_text = client.generate_completion(planning_prompt, model=model)
+                    with _timed(timings, "planning_completion_ms"):
+                        plan_text = client.generate_completion(planning_prompt, model=model)
                 except MedtronicGPTError as exc:
                     error = str(exc)
             if not error:
@@ -692,7 +760,8 @@ def index():
                     release_type=release_type,
                 )
                 try:
-                    draft = client.generate_completion(prompt, model=model)
+                    with _timed(timings, "build_completion_ms"):
+                        draft = client.generate_completion(prompt, model=model)
                     draft_questions = _extract_questions_from_json(draft)
                 except MedtronicGPTError as exc:
                     error = str(exc)
@@ -706,7 +775,8 @@ def index():
                         plan_context=plan_text,
                         release_type=release_type,
                     )
-                    refined = client.generate_completion(design_update_prompt, model=model)
+                    with _timed(timings, "design_refine_completion_ms"):
+                        refined = client.generate_completion(design_update_prompt, model=model)
                     draft = refined
                     draft_questions = _extract_questions_from_json(draft)
                 except MedtronicGPTError as exc:
@@ -766,13 +836,12 @@ def index():
                     missing_tokens=missing_placeholders,
                 )
                 try:
+                  with _timed(timings, "refine_completion_ms"):
                     draft = client.generate_completion(update_prompt, model=model)
                     draft_json_from_form = draft
                     draft_questions = _extract_questions_from_json(draft)
                     coverage_source = draft
-                    missing_placeholders = _compute_missing_placeholders(
-                        template_text, coverage_source
-                    )
+                    missing_placeholders = _compute_missing_placeholders(template_text, coverage_source)
                 except MedtronicGPTError as exc:
                     error = error or str(exc)
             elif missing_placeholders and not client:
@@ -784,23 +853,49 @@ def index():
           and draft  # use the latest JSON after coverage/update prompts
           and action in {"build", "refine", "answers"}
       ):
-          draft, fr_raw_latest = _apply_functional_requirements_enrichment(
-              draft=draft,
-              template_text=template_text,
-              prompt=prompt,
-              code_context=code_context_text,
-              plan_context=plan_text,
-              client=client,
-              model=model,
-          )
+          with _timed(timings, "functional_requirements_enrichment_ms"):
+            draft, fr_raw_latest = _apply_functional_requirements_enrichment(
+                draft=draft,
+                template_text=template_text,
+                prompt=prompt,
+                code_context=code_context_text,
+                plan_context=plan_text,
+                client=client,
+                model=model,
+            )
           if fr_raw_latest:
               fr_raw = fr_raw_latest
           draft_json_from_form = draft
           draft_questions = _extract_questions_from_json(draft)
+    try:
+        if request.method == "POST":
+            final_action = request.form.get("action", "build")
+            if final_action in {"build", "refine", "chat", "answers"}:
+                run_success = (error is None or str(error).strip() == "")
+                log_event(
+                    "ui_run",
+                    run_id=run_id,
+                    started_ms=run_started_ms,
+                    action=final_action,
+                    release_type=release_type,
+                    model=(request.form.get("model", "").strip() or defaults.get("model")),
+                    template_name=selected_template_name,
+                    has_plan=bool((plan_text or "").strip()),
+                    has_draft=bool((draft_json_from_form or "").strip()),
+                    draft_questions_count=len(draft_questions or []),
+                    missing_placeholders_count=len(missing_placeholders or []),
+                    examples_count=len(persisted_inputs.examples) if persisted_inputs else None,
+                    timings_ms=timings,
+                    success=run_success,
+                    error=str(error) if error else "",
+                )
+    except Exception:
+        pass
     return render_template_string(
         TEMPLATE,
         prompt=prompt,
         draft=draft,
+        app_version=APP_VERSION,
         error=error,
         defaults=defaults,
         history=history,
@@ -1221,6 +1316,7 @@ TEMPLATE = """
           <div class="tagline"><span class="pill">Questions to answer</span><span>Fill these in to update the JSON</span></div>
           <form method="post" id="answersForm">
             <textarea name="draft_json" style="display:none;">{{ draft }}</textarea>
+            <input type="hidden" name="user_name" id="userNameHiddenChat" value="">
             <input type="hidden" name="plan_text" value="{{ plan_text }}">
             <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
             <textarea name="code_context_old" style="display:none;">{{ code_context_old }}</textarea>
@@ -1347,6 +1443,7 @@ TEMPLATE = """
           <input type="hidden" name="refresh_token" value="{{ stored.refresh_token }}">
           <input type="hidden" name="plan_text" value="{{ plan_text }}">
           <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
+          <input type="hidden" name="user_name" id="userNameHidden" value="">
           <textarea name="code_context" style="display:none;">{{ code_context }}</textarea>
           <textarea name="code_context_old" style="display:none;">{{ code_context_old }}</textarea>
           <textarea name="code_context_new" style="display:none;">{{ code_context_new }}</textarea>
@@ -1365,6 +1462,29 @@ TEMPLATE = """
           </div>
         {% endif %}
       </div>
+    </div>
+    <div class="section">
+      <div class="section-head">
+        <h2>Feedback</h2>
+        <p>Send feedback with the current output attached (JSON + Easy + Markdown).</p>
+      </div>
+      <div class="card">
+        <form method="post" id="feedbackForm">
+          <input type="hidden" name="action" value="feedback">
+          <input type="hidden" name="user_name" id="userNameHiddenFeedback" value="">
+          <input type="hidden" name="model" value="{{ defaults.model }}">
+          <textarea name="feedback_text" placeholder="What worked? What didn’t? What should change?" style="min-height:90px;"></textarea>
+          <textarea name="draft_json" style="display:none;">{{ draft or draft_json }}</textarea>
+          <textarea name="easy_view" id="easyViewHidden" style="display:none;"></textarea>
+          <textarea name="markdown_view" id="markdownViewHidden" style="display:none;"></textarea>
+          <div class="actions">
+            <button class="btn btn-primary" type="submit">Send feedback</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div style="margin-top:24px; color:#64748b; font-size:12px; text-align:center;">
+      Version {{ app_version }}
     </div>
     </div>
     <button
@@ -1438,6 +1558,19 @@ TEMPLATE = """
       </div>
     </div>
     {% endif %}
+    <div id="nameModal" style="
+      position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+      background: rgba(15,23,42,0.45); z-index: 799858697067897; backdrop-filter: blur(3px);
+    ">
+      <div style="background:#fff; border-radius:14px; padding:16px; width:90%; max-width:420px; border:1px solid rgba(15,23,42,0.12);">
+        <div style="font-weight:700; margin-bottom:6px;">Welcome</div>
+        <div class="muted" style="margin-bottom:10px;">Enter your full name once (stored on this device) so usage + feedback can be logged.</div>
+        <input id="userNameInput" class="input" placeholder="First Last" />
+        <div class="actions" style="margin-top:12px; justify-content:flex-end;">
+          <button type="button" id="saveUserNameBtn" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
     <script>
     const loading = document.getElementById('loading');
     const mainForm = document.getElementById('mainForm');
@@ -1474,6 +1607,49 @@ TEMPLATE = """
     const modelSelect = document.getElementById('model');
     const answersModelInput = document.getElementById('answersModel');
     const chatModelInput = document.getElementById('chatModel');
+    const nameModal = document.getElementById('nameModal');
+    const userNameInput = document.getElementById('userNameInput');
+    const saveUserNameBtn = document.getElementById('saveUserNameBtn');
+    const userNameHidden = document.getElementById('userNameHidden');
+    const feedbackForm = document.getElementById('feedbackForm');
+    const easyHidden = document.getElementById('easyViewHidden');
+    const mdHidden = document.getElementById('markdownViewHidden');
+    if (feedbackForm) {
+      feedbackForm.addEventListener('submit', () => {
+        if (friendlyView && easyHidden) {
+          easyHidden.value = friendlyView.innerText || friendlyView.textContent || '';
+        }
+        if (markdownView && mdHidden) {
+          mdHidden.value = markdownView.textContent || '';
+        }
+        const name = localStorage.getItem('validation_user_name') || '';
+        feedbackForm.querySelectorAll('input[name="user_name"]').forEach((el) => el.value = name);
+      });
+    }
+    function syncUserNameToAllForms(name) {
+      document.querySelectorAll('input[name="user_name"]').forEach((el) => {
+        el.value = name || '';
+      });
+    }
+    function initUserName() {
+      const nameModal = document.getElementById('nameModal');
+      const existing = localStorage.getItem('validation_user_name') || '';
+      if (!existing.trim()) {
+        if (nameModal) nameModal.style.display = 'flex';
+      } else {
+        syncUserNameToAllForms(existing.trim());
+      }
+    }
+    document.addEventListener('DOMContentLoaded', initUserName);
+    if (saveUserNameBtn && userNameInput) {
+      saveUserNameBtn.addEventListener('click', () => {
+        const name = (userNameInput.value || '').trim();
+        if (!name) return;
+        localStorage.setItem('validation_user_name', name);
+        syncUserNameToAllForms(name);
+        if (nameModal) nameModal.style.display = 'none';
+      });
+    }
     function submitWithAction(actionValue) {
       if (!mainForm) return;
       const hidden = document.createElement('input');
