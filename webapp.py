@@ -2330,20 +2330,35 @@ def kill_prior_instances_by_keyword() -> None:
     import time
     keywords = ("validation-ui", "validationlauncher")
     me_pid = os.getpid()
+    parent_pid = os.getppid()
     try:
         import psutil  # type: ignore
     except Exception:
         psutil = None
-    victims = []
     if psutil:
+        try:
+            me = psutil.Process(me_pid)
+        except Exception:
+            me = None
+        exclude = {me_pid, parent_pid}
+        if me:
+            try:
+                exclude.update(p.pid for p in me.parents())
+            except Exception:
+                pass
+            try:
+                exclude.update(c.pid for c in me.children(recursive=True))
+            except Exception:
+                pass
+        victims = []
         for p in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
             try:
-                if p.info["pid"] == me_pid:
+                pid = p.info["pid"]
+                if pid in exclude:
                     continue
                 name = (p.info.get("name") or "").lower()
                 exe = (p.info.get("exe") or "").lower()
                 cmd = " ".join(p.info.get("cmdline") or []).lower()
-
                 haystack = f"{name} {exe} {cmd}"
                 if any(k in haystack for k in keywords):
                     victims.append(p)
@@ -2355,7 +2370,7 @@ def kill_prior_instances_by_keyword() -> None:
             except Exception:
                 pass
         try:
-            gone, alive = psutil.wait_procs(victims, timeout=2.0)
+            _, alive = psutil.wait_procs(victims, timeout=2.0)
         except Exception:
             alive = victims
         for p in alive:
@@ -2365,18 +2380,7 @@ def kill_prior_instances_by_keyword() -> None:
                 pass
         time.sleep(0.2)
         return
-    import subprocess
-    ps = r"""
-$keys = @('validation-ui','validationlauncher')
-Get-CimInstance Win32_Process |
-  Where-Object {
-    $h = (($_.Name + ' ' + $_.ExecutablePath + ' ' + $_.CommandLine) -as [string]).ToLower()
-    $keys | Where-Object { $h -like "*$_*" } | Measure-Object | Select-Object -ExpandProperty Count
-  } |
-  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-"""
-    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], capture_output=True, text=True)
-    time.sleep(0.2)
+    return
 if __name__ == "__main__":
     kill_prior_instances_by_keyword()
     import os
@@ -2398,7 +2402,7 @@ if __name__ == "__main__":
             return s.getsockname()[1]
     host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
     requested_port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
-    port = requested_port
+    port = _find_open_port(host, requested_port)
     def _open_browser() -> None:
         time.sleep(1)
         try:
