@@ -2325,7 +2325,60 @@ TEMPLATE = """
 </body>
 </html>
 """
+def kill_prior_instances_by_keyword() -> None:
+    import os
+    import time
+    keywords = ("validation-ui", "validationlauncher")
+    me_pid = os.getpid()
+    try:
+        import psutil  # type: ignore
+    except Exception:
+        psutil = None
+    victims = []
+    if psutil:
+        for p in psutil.process_iter(["pid", "name", "exe", "cmdline"]):
+            try:
+                if p.info["pid"] == me_pid:
+                    continue
+                name = (p.info.get("name") or "").lower()
+                exe = (p.info.get("exe") or "").lower()
+                cmd = " ".join(p.info.get("cmdline") or []).lower()
+
+                haystack = f"{name} {exe} {cmd}"
+                if any(k in haystack for k in keywords):
+                    victims.append(p)
+            except Exception:
+                continue
+        for p in victims:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        try:
+            gone, alive = psutil.wait_procs(victims, timeout=2.0)
+        except Exception:
+            alive = victims
+        for p in alive:
+            try:
+                p.kill()
+            except Exception:
+                pass
+        time.sleep(0.2)
+        return
+    import subprocess
+    ps = r"""
+$keys = @('validation-ui','validationlauncher')
+Get-CimInstance Win32_Process |
+  Where-Object {
+    $h = (($_.Name + ' ' + $_.ExecutablePath + ' ' + $_.CommandLine) -as [string]).ToLower()
+    $keys | Where-Object { $h -like "*$_*" } | Measure-Object | Select-Object -ExpandProperty Count
+  } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+"""
+    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], capture_output=True, text=True)
+    time.sleep(0.2)
 if __name__ == "__main__":
+    kill_prior_instances_by_keyword()
     import os
     import socket
     import threading
@@ -2345,7 +2398,7 @@ if __name__ == "__main__":
             return s.getsockname()[1]
     host = os.getenv("VALIDATION_UI_HOST", "127.0.0.1")
     requested_port = int(os.getenv("VALIDATION_UI_PORT", "8000"))
-    port = _find_open_port(host, requested_port)
+    port = requested_port
     def _open_browser() -> None:
         time.sleep(1)
         try:
